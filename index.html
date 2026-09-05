@@ -72,6 +72,7 @@
     const cv = document.getElementById("cv");
     const ctx = cv.getContext("2d");
     const CW = cv.width / COLS, CH = cv.height / ROWS;
+    const PX = cv.width / 320; // canvas px per device px (frame geometry is specified in device px)
 
     // ---------- glyphs (5 wide, refined contours, 9 tall) ----------
     const G = {
@@ -352,22 +353,26 @@
         });
         x0 += widths[i] + (i < text.length - 1 ? gaps[i] : 0);
       });
-      return { cells, x0: Math.floor((COLS - total) / 2), width: total, y0, height: 9 };
-    }
-
-    // one-cell shadow ring around the digits keeps them legible in the field
-    function nearDigit(L, x, y) {
-      for (let dy = -1; dy <= 1; dy++)
-        for (let dx = -1; dx <= 1; dx++)
-          if (L.cells.has(`${x + dx},${y + dy}`)) return true;
-      return false;
+      const L = { cells, x0: Math.floor((COLS - total) / 2), width: total, y0, height: 9 };
+      // The time sits on a framed "plate": the row above the digits and the
+      // seconds-track row below it are its top/bottom rules. The digit block is
+      // 50 of 53 columns wide, so the frame lives at pixel level and the whole
+      // group is nudged by `shift` px to sit dead-centre.
+      L.plateTop = y0 - 1;
+      L.plateBot = y0 + 9 + 1;
+      L.shift = (cv.width - total * CW) / 2 - L.x0 * CW;
+      L.frameL = L.x0 * CW + L.shift - 4 * PX;
+      L.frameR = (L.x0 + total) * CW + L.shift + 3 * PX;
+      L.frameT = L.plateTop * CH + CH / 2;
+      L.frameB = L.plateBot * CH + CH / 2;
+      return L;
     }
 
     // ---------- draw ----------
-    function put(ch, x, y, color, alpha = 1) {
+    function put(ch, x, y, color, alpha = 1, dx = 0) {
       ctx.globalAlpha = alpha;
       ctx.fillStyle = color;
-      ctx.fillText(ch, x * CW + CW / 2, y * CH + CH / 2 + 1);
+      ctx.fillText(ch, x * CW + CW / 2 + dx, y * CH + CH / 2 + 1);
     }
 
     function text(str, x, y, color, alpha = 1) {
@@ -394,56 +399,64 @@
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
 
-      // ASCII field: every cell above the footer is a flowing character.
-      // Digit cells are carved out of the field in the face palette (heavy glyphs over
-      // a tinted block, gradient sweeping with time); the ring around them is shadowed.
+      // ASCII field: every cell above the footer is a flowing character, except on
+      // the plate, where the field drops to a faint ghost so the digits (heavy glyphs
+      // over a tinted block, gradient sweeping with time) read against near-black
+      // instead of against their own palette.
+      const { shift, plateTop, plateBot } = layout;
       for (let y = 0; y < FIELD_ROWS; y++) {
-        const meterRow = y === layout.y0 + layout.height + 1;
+        const onPlate = y >= plateTop && y <= plateBot;
         for (let x = 0; x < COLS; x++) {
           if (layout.cells.has(`${x},${y}`)) {
             const u = (x - layout.x0) / layout.width + t * 0.08 + (y - layout.y0) * 0.02;
             const col = palette(F.digits, u);
             const v = 0.5 + 0.5 * Math.sin(x * 0.45 + y * 0.6 + t * 2.0);
-            ctx.globalAlpha = 0.24;
+            ctx.globalAlpha = 0.30;
             ctx.fillStyle = col;
-            ctx.fillRect(x * CW, y * CH, CW, CH);
-            put(rampChar(RAMP.digit, v), x, y, col, 0.8 + 0.2 * v);
+            ctx.fillRect(x * CW + shift, y * CH, CW, CH);
+            put(rampChar(RAMP.digit, v), x, y, col, 0.85 + 0.15 * v, shift);
             continue;
           }
-          if (meterRow && x >= layout.x0 - 1 && x <= layout.x0 + layout.width) continue;
+          if (onPlate) {
+            if (y === plateTop || y === plateBot) continue;                 // rule rows stay clear
+            if (x < layout.x0 || x >= layout.x0 + layout.width) continue;  // margins beside the frame
+            const r = F.field(x, y, t);
+            if (r) put(r[0], x, y, r[1], r[2] * 0.14, shift);
+            continue;
+          }
           const r = F.field(x, y, t);
-          if (r) put(r[0], x, y, r[1], nearDigit(layout, x, y) ? r[2] * 0.4 : r[2]);
+          if (r) put(r[0], x, y, r[1], r[2]);
         }
       }
       ctx.globalAlpha = 1;
 
-      // seconds timeline: micro tick marks + luminous indicator
+      // plate frame: hairline rules in the face colour with brighter corner marks;
+      // the bottom rule doubles as the seconds track.
+      const { frameL: fl, frameR: fr, frameT: ft, frameB: fb } = layout;
+      const accent = palette(F.digits, 0.5);
+      const rect = (x, y, w, h, col, a) => { ctx.globalAlpha = a; ctx.fillStyle = col; ctx.fillRect(x, y, w, h); };
+      rect(fl, ft, fr - fl + PX, PX, accent, 0.42);
+      rect(fl, fb, fr - fl + PX, PX, accent, 0.42);
+      rect(fl, ft, PX, fb - ft + PX, accent, 0.42);
+      rect(fr, ft, PX, fb - ft + PX, accent, 0.42);
+      const k = 5 * PX;
+      rect(fl, ft, k, PX, accent, 0.95); rect(fl, ft, PX, k, accent, 0.95);
+      rect(fr - k + PX, ft, k, PX, accent, 0.95); rect(fr, ft, PX, k, accent, 0.95);
+      rect(fl, fb, k, PX, accent, 0.95); rect(fl, fb - k + PX, PX, k, accent, 0.95);
+      rect(fr - k + PX, fb, k, PX, accent, 0.95); rect(fr, fb - k + PX, PX, k, accent, 0.95);
+
+      // seconds track along the bottom rule: quarter ticks + glowing head
       const sec = now.getSeconds();
-      const dotY = layout.y0 + layout.height + 1;
-      const dotPy = dotY * CH;
-      for (let i = 0; i < layout.width; i++) {
-        const dotPx = (layout.x0 + i) * CW + 2;
-        if (i === 0 || i === Math.floor(layout.width / 2) || i === layout.width - 1) {
-          ctx.fillStyle = palette(F.digits, 0.5);
-          ctx.globalAlpha = 0.40;
-          ctx.fillRect(dotPx, dotPy + 4, 2, 4);
-        } else {
-          ctx.fillStyle = "rgba(255,255,255,0.18)";
-          ctx.globalAlpha = 1;
-          ctx.fillRect(dotPx, dotPy + 5, 2, 2);
-        }
+      const tx0 = layout.x0 * CW + shift, tw = layout.width * CW;
+      for (let q = 0; q <= 4; q++) {
+        const tx = tx0 + PX + ((tw - 4 * PX) * q) / 4;
+        rect(tx, fb - 2 * PX, 2 * PX, 5 * PX, accent, q % 2 ? 0.45 : 0.75);
       }
-
-      const barX = layout.x0 + Math.floor((sec / 59) * (layout.width - 1));
+      const sx = tx0 + 2 * PX + ((tw - 10 * PX) * sec) / 59;
       const secCol = palette(F.digits, sec / 60);
-      ctx.fillStyle = secCol;
-      ctx.globalAlpha = 0.40;
-      ctx.fillRect(barX * CW, dotPy + 3, 6, 6);
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = secCol;
-      ctx.fillRect(barX * CW + 1, dotPy + 4, 4, 4);
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(barX * CW + 2, dotPy + 5, 2, 2);
+      rect(sx - PX, fb - 3 * PX, 6 * PX, 7 * PX, secCol, 0.40);
+      rect(sx, fb - 2 * PX, 4 * PX, 5 * PX, secCol, 1);
+      rect(sx + PX, fb, 2 * PX, PX, "#ffffff", 1);
 
       // bottom bar: hairline divider + elegant metadata
       const divY = (ROWS - 1) * CH;

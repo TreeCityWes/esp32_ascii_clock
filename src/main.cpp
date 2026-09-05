@@ -43,6 +43,7 @@ XPT2046_Touchscreen touch(XPT_CS, XPT_IRQ);
 // ---------- grid ----------
 static const int COLS = 53, ROWS = 20, CW = 6, CH = 12;
 static const int SCREEN_W = 320, SCREEN_H = 240, SPR_H = 120;
+static const int FIELD_ROWS = ROWS - 2;  // rows of animated field above the footer
 
 // ---------- glyphs (5 wide, refined proportions, 9 tall) ----------
 // Carefully crafted contours with chamfered corners, open counters, and optical balance.
@@ -229,7 +230,7 @@ static char rampChar(const char* ramp, int n, float v) { return ramp[(int)(clamp
 
 // Field cell for a face. Returns false for empty. `col` is pre-dimmed.
 static bool fieldCell(Face f, int x, int y, float t, char& ch, RGB& col) {
-  const int rows = ROWS - 2;  // field rows above the footer
+  const int rows = FIELD_ROWS;
   switch (f) {
     case SUNRISE: {
       // plasma sky (violet -> rose) above a horizon of ember waves
@@ -308,15 +309,17 @@ static bool fieldCell(Face f, int x, int y, float t, char& ch, RGB& col) {
 struct Layout {
   int x0, width, y0, height;
   bool cell[ROWS][COLS];
-  // one-cell shadow ring around the digits keeps them legible in the field
-  bool nearDigit(int x, int y) const {
-    for (int dy = -1; dy <= 1; dy++)
-      for (int dx = -1; dx <= 1; dx++) {
-        int xx = x + dx, yy = y + dy;
-        if (xx >= 0 && xx < COLS && yy >= 0 && yy < ROWS && cell[yy][xx]) return true;
-      }
-    return false;
-  }
+  // The time sits on a framed "plate": the row above the digits and the
+  // seconds-track row below it are its top/bottom rules. The digit block is
+  // 50 of 53 columns wide, so the frame lives at pixel level and the whole
+  // group is nudged by `shift` px to sit dead-centre on the panel.
+  int plateTop() const { return y0 - 1; }
+  int plateBot() const { return y0 + height + 1; }
+  int shift() const { return (SCREEN_W - width * CW) / 2 - x0 * CW; }
+  int frameL() const { return x0 * CW + shift() - 4; }
+  int frameR() const { return (x0 + width) * CW + shift() + 3; }
+  int frameT() const { return plateTop() * CH + CH / 2; }
+  int frameB() const { return plateBot() * CH + CH / 2; }
 };
 
 static void buildLayout(const char* text, Layout& L) {
@@ -449,55 +452,68 @@ static void renderFrame() {
     int off = pass * SPR_H;
     spr.fillSprite(TFT_BLACK);
 
-    // ASCII field: every cell above the footer is a flowing character.
-    // Digit cells are carved out of the field in the face palette (heavy glyphs
-    // over a tinted block, gradient sweeping with time); the ring of cells
-    // around them is shadowed so the numerals stay legible.
-    for (int y = 0; y < ROWS - 2; y++) {
+    // ASCII field: every cell above the footer is a flowing character, except
+    // on the plate, where the field drops to a faint ghost so the digits (heavy
+    // glyphs over a tinted block, gradient sweeping with time) read against
+    // near-black instead of against their own palette.
+    const int shift = L.shift(), pTop = L.plateTop(), pBot = L.plateBot();
+    for (int y = 0; y < FIELD_ROWS; y++) {
       int py = y * CH - off;
       if (py + CH <= 0 || py >= SPR_H) continue;
-      bool meterRow = (y == L.y0 + L.height + 1);
+      bool onPlate = (y >= pTop && y <= pBot);
       for (int x = 0; x < COLS; x++) {
-        int px = x * CW;
         if (L.cell[y][x]) {
+          int px = x * CW + shift;
           float u = (float)(x - L.x0) / L.width + t * 0.08f + (y - L.y0) * 0.02f;
           RGB col = palette(F.pal, F.n, u);
           float v = 0.5f + 0.5f * sinf(x * 0.45f + y * 0.6f + t * 2.0f);
-          uint16_t block = c565(dim(col, 0.24f));
+          uint16_t block = c565(dim(col, 0.30f));
           spr.fillRect(px, py, CW, CH, block);
-          spr.drawChar(px, py + 2, RAMP(RAMP_DIGIT, v), c565(dim(col, 0.8f + 0.2f * v)), block, 1);
+          spr.drawChar(px, py + 2, RAMP(RAMP_DIGIT, v), c565(dim(col, 0.85f + 0.15f * v)), block, 1);
           continue;
         }
-        if (meterRow && x >= L.x0 - 1 && x <= L.x0 + L.width) continue;
         char ch; RGB col;
+        if (onPlate) {
+          if (y == pTop || y == pBot) continue;                  // rule rows stay clear
+          if (x < L.x0 || x >= L.x0 + L.width) continue;         // margins beside the frame
+          if (!fieldCell(face, x, y, t, ch, col)) continue;
+          spr.drawChar(x * CW + shift, py + 2, ch, c565(dim(col, 0.14f)), TFT_BLACK, 1);
+          continue;
+        }
         if (!fieldCell(face, x, y, t, ch, col)) continue;
-        if (L.nearDigit(x, y)) col = dim(col, 0.4f);
-        spr.drawChar(px, py + 2, ch, c565(col), TFT_BLACK, 1);
+        spr.drawChar(x * CW, py + 2, ch, c565(col), TFT_BLACK, 1);
       }
     }
 
-    // seconds line under the digits
+    // plate frame: hairline rules in the face colour with brighter corner
+    // marks; the bottom rule doubles as the seconds track.
+    // (TFT_eSprite clips primitives, so we just offset by the pass.)
     {
-      int y = L.y0 + L.height + 1, py = y * CH - off;
-      if (py + CH > 0 && py < SPR_H) {
-        uint16_t dotDim = c565(dim(rgb(0xffffff), 0.18f));
-        uint16_t markCol = c565(dim(palette(F.pal, F.n, 0.5f), 0.40f));
-        for (int i = 0; i < L.width; i++) {
-          int dotX = (L.x0 + i) * CW + 2;
-          if (i == 0 || i == L.width / 2 || i == L.width - 1) {
-            spr.fillRect(dotX, py + 4, 2, 4, markCol);
-          } else {
-            spr.fillRect(dotX, py + 5, 2, 2, dotDim);
-          }
-        }
-        int sx = L.x0 + (sec * (L.width - 1)) / 59;
-        RGB secCol = palette(F.pal, F.n, sec / 60.0f);
-        // glowing head with soft halo
-        spr.fillRect(sx * CW, py + 3, 6, 6, c565(dim(secCol, 0.40f)));
-        spr.fillRect(sx * CW + 1, py + 4, 4, 4, c565(secCol));
-        spr.drawPixel(sx * CW + 2, py + 5, TFT_WHITE);
-        spr.drawPixel(sx * CW + 3, py + 5, TFT_WHITE);
+      const int fl = L.frameL(), fr = L.frameR(), ft = L.frameT() - off, fb = L.frameB() - off;
+      RGB accent = palette(F.pal, F.n, 0.5f);
+      uint16_t rule = c565(dim(accent, 0.42f)), mark = c565(dim(accent, 0.95f));
+      spr.drawFastHLine(fl, ft, fr - fl + 1, rule);
+      spr.drawFastHLine(fl, fb, fr - fl + 1, rule);
+      spr.drawFastVLine(fl, ft, fb - ft + 1, rule);
+      spr.drawFastVLine(fr, ft, fb - ft + 1, rule);
+      const int k = 5;  // corner mark length
+      spr.drawFastHLine(fl, ft, k, mark); spr.drawFastVLine(fl, ft, k, mark);
+      spr.drawFastHLine(fr - k + 1, ft, k, mark); spr.drawFastVLine(fr, ft, k, mark);
+      spr.drawFastHLine(fl, fb, k, mark); spr.drawFastVLine(fl, fb - k + 1, k, mark);
+      spr.drawFastHLine(fr - k + 1, fb, k, mark); spr.drawFastVLine(fr, fb - k + 1, k, mark);
+
+      // seconds track along the bottom rule: quarter ticks + glowing head
+      const int tx0 = L.x0 * CW + shift, tw = L.width * CW;
+      for (int q = 0; q <= 4; q++) {
+        int tx = tx0 + 1 + ((tw - 4) * q) / 4;
+        spr.fillRect(tx, fb - 2, 2, 5, c565(dim(accent, q % 2 ? 0.45f : 0.75f)));
       }
+      int sx = tx0 + 2 + ((tw - 10) * sec) / 59;
+      RGB secCol = palette(F.pal, F.n, sec / 60.0f);
+      spr.fillRect(sx - 1, fb - 3, 6, 7, c565(dim(secCol, 0.40f)));
+      spr.fillRect(sx, fb - 2, 4, 5, c565(secCol));
+      spr.drawPixel(sx + 1, fb, TFT_WHITE);
+      spr.drawPixel(sx + 2, fb, TFT_WHITE);
     }
 
     // bottom bar: hairline divider + elegant metadata
