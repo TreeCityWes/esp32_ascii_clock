@@ -18,10 +18,10 @@
       background: #050608;
       transition: background 0.6s ease;
     }
-    body[data-face="sunrise"] { --accent: #ffb070; background: #0d0806; }
-    body[data-face="water"]   { --accent: #6ed0e4; background: #04090f; }
-    body[data-face="night"]   { --accent: #a8b8d0; background: #05060b; }
-    body[data-face="space"]   { --accent: #d08cff; background: #07040c; }
+    body[data-face="sunrise"] { --accent: #ff9973; background: #0c0807; }
+    body[data-face="water"]   { --accent: #58d8c2; background: #040a10; }
+    body[data-face="night"]   { --accent: #b4c4e8; background: #05060d; }
+    body[data-face="space"]   { --accent: #9b6ef3; background: #08040f; }
 
     .wrap { display: flex; flex-direction: column; align-items: center; gap: 1.1rem; }
 
@@ -33,7 +33,6 @@
       background: #000;
       box-shadow: 0 30px 60px rgba(0,0,0,.6), 0 0 0 6px #0a0a0c, 0 0 0 7px #1a1a1f;
       overflow: hidden;
-      animation: in .6s ease both;
     }
     canvas { display: block; width: 100%; height: 100%; image-rendering: auto; }
 
@@ -69,84 +68,192 @@
 
   <script>
     // ---------- grid ----------
-    const COLS = 60, ROWS = 20;
+    const COLS = 53, ROWS = 20;
     const cv = document.getElementById("cv");
     const ctx = cv.getContext("2d");
     const CW = cv.width / COLS, CH = cv.height / ROWS;
 
-    // ---------- glyphs (5 wide, hollow, 9 tall) ----------
+    // ---------- glyphs (5 wide, refined contours, 9 tall) ----------
     const G = {
-      "0": [" ### ","#   #","#   #","#   #","#   #","#   #","#   #","#   #"," ### "],
-      "1": ["  #  "," ##  ","# #  ","  #  ","  #  ","  #  ","  #  ","  #  ","#####"],
-      "2": [" ### ","#   #","    #","    #","   # ","  #  "," #   ","#    ","#####"],
-      "3": [" ### ","#   #","    #","    #","  ## ","    #","    #","#   #"," ### "],
-      "4": ["#   #","#   #","#   #","#   #","#####","    #","    #","    #","    #"],
-      "5": ["#####","#    ","#    ","#    ","#### ","    #","    #","#   #"," ### "],
-      "6": [" ### ","#   #","#    ","#    ","#### ","#   #","#   #","#   #"," ### "],
-      "7": ["#####","    #","    #","   # ","   # ","  #  ","  #  ","  #  ","  #  "],
-      "8": [" ### ","#   #","#   #","#   #"," ### ","#   #","#   #","#   #"," ### "],
-      "9": [" ### ","#   #","#   #","#   #"," ####","    #","    #","#   #"," ### "],
-      ":": ["   ","   ","   "," # "," # ","   "," # "," # ","   "],
+      "0": [
+        " ### ",
+        "#   #",
+        "#   #",
+        "#   #",
+        "#   #",
+        "#   #",
+        "#   #",
+        "#   #",
+        " ### "
+      ],
+      "1": [
+        "  #  ",
+        " ##  ",
+        "  #  ",
+        "  #  ",
+        "  #  ",
+        "  #  ",
+        "  #  ",
+        "  #  ",
+        "#####"
+      ],
+      "2": [
+        " ### ",
+        "#   #",
+        "    #",
+        "    #",
+        " ### ",
+        "#    ",
+        "#    ",
+        "#    ",
+        "#####"
+      ],
+      "3": [
+        "#### ",
+        "    #",
+        "    #",
+        "    #",
+        " ### ",
+        "    #",
+        "    #",
+        "    #",
+        "#### "
+      ],
+      "4": [
+        "#   #",
+        "#   #",
+        "#   #",
+        "#   #",
+        "#####",
+        "    #",
+        "    #",
+        "    #",
+        "    #"
+      ],
+      "5": [
+        "#####",
+        "#    ",
+        "#    ",
+        "#### ",
+        "    #",
+        "    #",
+        "    #",
+        "#   #",
+        " ### "
+      ],
+      "6": [
+        " ### ",
+        "#   #",
+        "#    ",
+        "#### ",
+        "#   #",
+        "#   #",
+        "#   #",
+        "#   #",
+        " ### "
+      ],
+      "7": [
+        "#####",
+        "    #",
+        "    #",
+        "   # ",
+        "   # ",
+        "  #  ",
+        "  #  ",
+        "  #  ",
+        "  #  "
+      ],
+      "8": [
+        " ### ",
+        "#   #",
+        "#   #",
+        "#   #",
+        " ### ",
+        "#   #",
+        "#   #",
+        "#   #",
+        " ### "
+      ],
+      "9": [
+        " ### ",
+        "#   #",
+        "#   #",
+        "#   #",
+        " ####",
+        "    #",
+        "    #",
+        "#   #",
+        " ### "
+      ],
+      ":": [
+        "  ",
+        "  ",
+        " #",
+        " #",
+        "  ",
+        " #",
+        " #",
+        "  ",
+        "  "
+      ],
     };
 
     // ---------- faces ----------
     const FACES = {
       sunrise: {
-        digits: ["#ffd27a", "#ff9a5c", "#ff6f91", "#d98cff"],
+        digits: ["#ffcaa5", "#ff9973", "#f06282", "#d070e8", "#ffcaa5"],
         ink: "█",
         bg(x, y, t) {
           const horizon = 13;
           if (y >= horizon) {
-            const w = Math.sin(x * 0.28 + t * 1.6 + (y - horizon) * 0.9);
-            const ch = w > 0.55 ? "~" : w > -0.2 ? "-" : "_";
+            const w = Math.sin(x * 0.24 + t * 1.3 + (y - horizon) * 0.85);
+            const ch = w > 0.58 ? "~" : (w > -0.15 ? "-" : ".");
             const d = (y - horizon) / (ROWS - horizon);
-            return [ch, mix("#c85a2a", "#5a2020", d), 0.45];
+            return [ch, mix("#e06830", "#602220", d), 0.55];
           }
-          // sky: slow drifting bands of light, pink → violet toward the top
-          const s = Math.sin(x * 0.12 - t * 0.6 + y * 1.3);
-          const ch = s > 0.7 ? "=" : s > 0.1 ? "-" : s > -0.4 ? "." : " ";
-          if (ch === " ") return null;
+          const s = Math.sin(x * 0.11 - t * 0.5 + y * 1.25);
+          if (s <= -0.3) return null;
+          const ch = s > 0.72 ? "=" : (s > 0.18 ? "-" : ".");
           const d = y / horizon;
-          return [ch, mix("#7a4aa0", "#e06a7a", d), 0.3 + 0.25 * d];
+          return [ch, mix("#8c4eb5", "#f0687c", d), 0.38 + 0.28 * d];
         },
         weather: "68°F  CLEAR",
       },
       water: {
-        digits: ["#9af2ff", "#4fb8ff", "#7fe6d0", "#4fb8ff"],
+        digits: ["#8ee7f8", "#42b4e6", "#58d8c2", "#62c0f0", "#8ee7f8"],
         ink: "█",
         bg(x, y, t) {
-          const w = Math.sin(x * 0.22 + t * 1.8 + y * 0.7) + 0.5 * Math.sin(x * 0.5 - t * 1.1 + y * 0.3);
-          const ch = w > 1.05 ? "≈" : w > 0.45 ? "~" : w > -0.3 ? "-" : " ";
-          if (ch === " ") return null;
+          const w = Math.sin(x * 0.20 + t * 1.5 + y * 0.65) + 0.45 * Math.sin(x * 0.45 - t * 0.9 + y * 0.35);
+          if (w <= -0.2) return null;
+          const ch = w > 0.55 ? "~" : (w > 0.1 ? "-" : ".");
           const d = y / ROWS;
-          return [ch, mix("#2a8ac0", "#0c2a4a", d), 0.32 + 0.2 * (w / 1.5)];
+          return [ch, mix("#389ed0", "#103658", d), 0.38 + 0.32 * (w / 1.5)];
         },
         weather: "72°F  PARTLY CLOUDY",
       },
       night: {
-        digits: ["#f2f4ff", "#c0caff", "#e8ecff"],
+        digits: ["#eaf0fc", "#b4c4e8", "#d2dcf4", "#98aed6", "#eaf0fc"],
         ink: "█",
         bg(x, y, t) {
           const n = hash(x, y);
-          if (n < 0.94) return null;
-          const tw = 0.5 + 0.5 * Math.sin(t * (1 + n * 3) + n * 60);
-          const ch = tw > 0.85 ? "+" : tw > 0.5 ? "*" : ".";
-          return [ch, mix("#3a4270", "#b8c4ff", tw), 0.35 + 0.6 * tw];
+          if (n < 0.945) return null;
+          const tw = 0.5 + 0.5 * Math.sin(t * (1.2 + n * 2.5) + n * 60);
+          const ch = tw > 0.88 ? "+" : (tw > 0.45 ? "*" : ".");
+          return [ch, mix("#485285", "#cad6ff", tw), 0.42 + 0.55 * tw];
         },
         weather: "58°F  CLEAR NIGHT",
       },
       space: {
-        digits: ["#ff7ad9", "#a07aff", "#5ad8ff", "#7affc4", "#ff7ad9"],
+        digits: ["#f472d0", "#9b6ef3", "#48caf5", "#63e6bf", "#f472d0"],
         ink: "▓",
         bg(x, y, t) {
-          // drifting starfield: shift x by time per depth layer
           const layer = (x + y) % 3;
-          const sx = Math.floor(x + t * (0.8 + layer * 0.9)) % COLS;
+          const sx = Math.floor(x + t * (0.7 + layer * 0.8)) % COLS;
           const n = hash(sx, y);
-          if (n < 0.9) return null;
-          const cols = ["#7a4aa8", "#4a6ab8", "#c060c0", "#5ac8d8"];
-          const ch = layer === 2 ? "*" : layer === 1 ? "+" : ".";
-          return [ch, cols[Math.floor(n * 40) % cols.length], 0.4 + 0.3 * layer];
+          if (n < 0.91) return null;
+          const cols = ["#8a50c0", "#5078d0", "#d065d0", "#60d4e8"];
+          const ch = layer === 2 ? "*" : (layer === 1 ? "+" : ".");
+          return [ch, cols[Math.floor(n * 40) % cols.length], 0.45 + 0.35 * layer];
         },
         weather: "-270°C  VACUUM",
       },
@@ -165,8 +272,11 @@
     }
     function palette(stops, u) {
       u = ((u % 1) + 1) % 1;
-      const seg = u * (stops.length - 1), i = Math.floor(seg);
-      return mix(stops[i], stops[Math.min(i + 1, stops.length - 1)], seg - i);
+      const seg = u * (stops.length - 1);
+      const i = Math.floor(seg);
+      const frac = seg - i;
+      const nextIdx = Math.min(i + 1, stops.length - 1);
+      return mix(stops[i], stops[nextIdx], frac);
     }
 
     // ---------- state ----------
@@ -185,13 +295,17 @@
     // ---------- layout of digits (each glyph col doubled → 2 cells wide) ----------
     function digitCells(text) {
       const cells = new Map(); // key "x,y" -> true
-      const widths = [...text].map((ch) => G[ch][0].length * 2);
-      const gap = 2;
-      const total = widths.reduce((a, b) => a + b, 0) + gap * (text.length - 1);
+      const widths = [...text].map((ch) => (ch === ":" ? 2 : 5) * 2);
+      const gaps = [];
+      for (let i = 0; i < text.length - 1; i++) {
+        gaps.push(text[i] === ":" || text[i + 1] === ":" ? 1 : 2);
+      }
+      const total = widths.reduce((a, b) => a + b, 0) + gaps.reduce((a, b) => a + b, 0);
       let x0 = Math.floor((COLS - total) / 2);
       const y0 = 4;
       [...text].forEach((ch, i) => {
-        G[ch].forEach((line, r) => {
+        const glyphLines = G[ch];
+        glyphLines.forEach((line, r) => {
           [...line].forEach((p, c) => {
             if (p === "#") {
               cells.set(`${x0 + c * 2},${y0 + r}`, true);
@@ -199,7 +313,7 @@
             }
           });
         });
-        x0 += widths[i] + gap;
+        x0 += widths[i] + (i < text.length - 1 ? gaps[i] : 0);
       });
       return { cells, x0: Math.floor((COLS - total) / 2), width: total, y0, height: 9 };
     }
@@ -218,6 +332,11 @@
 
     function text(str, x, y, color, alpha = 1) {
       [...str].forEach((ch, i) => put(ch, x + i, y, color, alpha));
+    }
+
+    function textRight(str, rightX, y, color, alpha = 1) {
+      const startX = rightX - str.length;
+      [...str].forEach((ch, i) => put(ch, startX + i, y, color, alpha));
     }
 
     function render() {
@@ -243,29 +362,96 @@
           if (r) put(r[0], x, y, r[1], r[2]);
         }
       }
+      ctx.globalAlpha = 1;
 
-      // digits: solid blocks, color gradient sweeps horizontally with time
+      // digits: refined shaded blocks, color gradient sweeps horizontally with time
       for (const key of layout.cells.keys()) {
         const [x, y] = key.split(",").map(Number);
         const u = (x - layout.x0) / layout.width + t * 0.08 + (y - layout.y0) * 0.02;
-        put(F.ink, x, y, palette(F.digits, u));
+        const col = palette(F.digits, u);
+
+        // draw background block for crispness and depth
+        const px = x * CW, py = y * CH;
+        ctx.fillStyle = col;
+        ctx.fillRect(px, py, CW, CH);
+
+        // subtle inner bevel/highlight
+        const topEdge = !layout.cells.has(`${x},${y - 1}`);
+        const botEdge = !layout.cells.has(`${x},${y + 1}`);
+        const leftEdge = !layout.cells.has(`${x - 1},${y}`);
+        const rightEdge = !layout.cells.has(`${x + 1},${y}`);
+
+        if (topEdge) {
+          ctx.fillStyle = "rgba(255,255,255,0.22)";
+          ctx.fillRect(px, py, CW, 1);
+        }
+        if (leftEdge) {
+          ctx.fillStyle = "rgba(255,255,255,0.15)";
+          ctx.fillRect(px, py, 1, CH);
+        }
+        if (botEdge) {
+          ctx.fillStyle = "rgba(0,0,0,0.30)";
+          ctx.fillRect(px, py + CH - 1, CW, 1);
+        }
+        if (rightEdge) {
+          ctx.fillStyle = "rgba(0,0,0,0.25)";
+          ctx.fillRect(px + CW - 1, py, 1, CH);
+        }
+
+        if (F.ink !== "█") {
+          put(F.ink, x, y, "#000000", 0.25);
+        }
+        ctx.globalAlpha = 1;
       }
 
-      // seconds pulse: a soft dot that walks under the digits
-      const sec = now.getSeconds();
-      const barX = layout.x0 + Math.floor((sec / 60) * layout.width);
-      text("·".repeat(layout.width), layout.x0, layout.y0 + layout.height + 1, "#ffffff", 0.12);
-      put("•", barX, layout.y0 + layout.height + 1, palette(F.digits, sec / 60), 0.9);
+      // hairline separator above seconds timeline
+      const sepY = (layout.y0 + layout.height) * CH + 3;
+      const xStart = (layout.x0 - 1) * CW;
+      const xLen = (layout.width + 2) * CW;
+      ctx.fillStyle = "rgba(136, 153, 170, 0.15)";
+      ctx.fillRect(xStart, sepY, xLen, 1);
 
-      // bottom bar: date left · am/pm + face center · weather right
+      // seconds timeline: micro tick marks + luminous indicator
+      const sec = now.getSeconds();
+      const dotY = layout.y0 + layout.height + 1;
+      const dotPy = dotY * CH;
+      for (let i = 0; i < layout.width; i++) {
+        const dotPx = (layout.x0 + i) * CW + 2;
+        if (i === 0 || i === Math.floor(layout.width / 2) || i === layout.width - 1) {
+          ctx.fillStyle = palette(F.digits, 0.5);
+          ctx.globalAlpha = 0.40;
+          ctx.fillRect(dotPx, dotPy + 4, 2, 4);
+        } else {
+          ctx.fillStyle = "rgba(255,255,255,0.18)";
+          ctx.globalAlpha = 1;
+          ctx.fillRect(dotPx, dotPy + 5, 2, 2);
+        }
+      }
+
+      const barX = layout.x0 + Math.floor((sec / 59) * (layout.width - 1));
+      const secCol = palette(F.digits, sec / 60);
+      ctx.fillStyle = secCol;
+      ctx.globalAlpha = 0.40;
+      ctx.fillRect(barX * CW, dotPy + 3, 6, 6);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = secCol;
+      ctx.fillRect(barX * CW + 1, dotPy + 4, 4, 4);
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(barX * CW + 2, dotPy + 5, 2, 2);
+
+      // bottom bar: hairline divider + elegant metadata
+      const divY = (ROWS - 1) * CH;
+      ctx.fillStyle = "rgba(96, 112, 128, 0.20)";
+      ctx.fillRect(CW, divY, cv.width - 2 * CW, 1);
+
       const y = ROWS - 1;
-      const date = `${DAYS[now.getDay()]}  ${MONTHS[now.getMonth()]} ${now.getDate()}`;
-      const mid = `${h < 12 ? "AM" : "PM"} · ${face.toUpperCase()}`;
+      const date = `${DAYS[now.getDay()]}, ${MONTHS[now.getMonth()]} ${now.getDate()}`;
+      const mid = `${h < 12 ? "AM" : "PM"}  ·  ${face.toUpperCase()}`;
       const wx = F.weather;
-      const muted = "#9aa1ac";
+      const muted = "#9aa8b8";
       text(date, 2, y, muted, 0.85);
-      text(mid, Math.floor((COLS - mid.length) / 2), y, palette(F.digits, 0.5), 0.75);
-      text(wx, COLS - 2 - wx.length, y, muted, 0.85);
+      text(mid, Math.floor((COLS - mid.length) / 2), y, palette(F.digits, 0.5), 0.90);
+      textRight(wx, COLS - 2, y, muted, 0.85);
       ctx.globalAlpha = 1;
     }
 
@@ -285,6 +471,7 @@
 
     const initial = new URLSearchParams(location.search).get("face");
     if (initial && FACES[initial]) setFace(initial);
+    render();
     document.fonts.ready.then(() => { render(); setInterval(render, 100); });
   </script>
 </body>

@@ -34,21 +34,131 @@ XPT2046_Touchscreen touch(XPT_CS, XPT_IRQ);
 static const int COLS = 53, ROWS = 20, CW = 6, CH = 12;
 static const int SCREEN_W = 320, SCREEN_H = 240, SPR_H = 120;
 
-// ---------- glyphs (5 wide, hollow, 9 tall) ----------
+// ---------- glyphs (5 wide, refined proportions, 9 tall) ----------
+// Carefully crafted contours with chamfered corners, open counters, and optical balance.
 static const char* G_DIGITS[10][9] = {
-  {" ### ","#   #","#   #","#   #","#   #","#   #","#   #","#   #"," ### "},
-  {"  #  "," ##  ","# #  ","  #  ","  #  ","  #  ","  #  ","  #  ","#####"},
-  {" ### ","#   #","    #","    #","   # ","  #  "," #   ","#    ","#####"},
-  {" ### ","#   #","    #","    #","  ## ","    #","    #","#   #"," ### "},
-  {"#   #","#   #","#   #","#   #","#####","    #","    #","    #","    #"},
-  {"#####","#    ","#    ","#    ","#### ","    #","    #","#   #"," ### "},
-  {" ### ","#   #","#    ","#    ","#### ","#   #","#   #","#   #"," ### "},
-  {"#####","    #","    #","   # ","   # ","  #  ","  #  ","  #  ","  #  "},
-  {" ### ","#   #","#   #","#   #"," ### ","#   #","#   #","#   #"," ### "},
-  {" ### ","#   #","#   #","#   #"," ####","    #","    #","#   #"," ### "},
+  {" ### ",
+   "#   #",
+   "#   #",
+   "#   #",
+   "#   #",
+   "#   #",
+   "#   #",
+   "#   #",
+   " ### "},
+
+  {"  #  ",
+   " ##  ",
+   "  #  ",
+   "  #  ",
+   "  #  ",
+   "  #  ",
+   "  #  ",
+   "  #  ",
+   "#####"},
+
+  {" ### ",
+   "#   #",
+   "    #",
+   "    #",
+   " ### ",
+   "#    ",
+   "#    ",
+   "#    ",
+   "#####"},
+
+  {"#### ",
+   "    #",
+   "    #",
+   "    #",
+   " ### ",
+   "    #",
+   "    #",
+   "    #",
+   "#### "},
+
+  {"#   #",
+   "#   #",
+   "#   #",
+   "#   #",
+   "#####",
+   "    #",
+   "    #",
+   "    #",
+   "    #"},
+
+  {"#####",
+   "#    ",
+   "#    ",
+   "#### ",
+   "    #",
+   "    #",
+   "    #",
+   "#   #",
+   " ### "},
+
+  {" ### ",
+   "#   #",
+   "#    ",
+   "#### ",
+   "#   #",
+   "#   #",
+   "#   #",
+   "#   #",
+   " ### "},
+
+  {"#####",
+   "    #",
+   "    #",
+   "   # ",
+   "   # ",
+   "  #  ",
+   "  #  ",
+   "  #  ",
+   "  #  "},
+
+  {" ### ",
+   "#   #",
+   "#   #",
+   "#   #",
+   " ### ",
+   "#   #",
+   "#   #",
+   "#   #",
+   " ### "},
+
+  {" ### ",
+   "#   #",
+   "#   #",
+   "#   #",
+   " ####",
+   "    #",
+   "    #",
+   "#   #",
+   " ### "},
 };
-static const char* G_COLON[9] = {"  ","  ","  "," #"," #","  "," #"," #","  "};
-static const char* G_DASH[9]  = {"     ","     ","     ","     ","#####","     ","     ","     ","     "};
+static const char* G_COLON[9] = {
+  "  ",
+  "  ",
+  " #",
+  " #",
+  "  ",
+  " #",
+  " #",
+  "  ",
+  "  "
+};
+static const char* G_DASH[9]  = {
+  "     ",
+  "     ",
+  "     ",
+  "     ",
+  "#####",
+  "     ",
+  "     ",
+  "     ",
+  "     "
+};
 
 static const char* const* glyphFor(char c, int& w) {
   if (c >= '0' && c <= '9') { w = 5; return G_DIGITS[c - '0']; }
@@ -84,13 +194,13 @@ static float hash2(int x, int y) {
 // ---------- faces ----------
 enum Face { SUNRISE, WATER, NIGHT, SPACE, FACE_COUNT };
 static const char* FACE_NAMES[FACE_COUNT] = { "SUNRISE", "WATER", "NIGHT", "SPACE" };
-static const uint32_t PAL_SUNRISE[] = { 0xffd27a, 0xff9a5c, 0xff6f91, 0xd98cff };
-static const uint32_t PAL_WATER[]   = { 0x9af2ff, 0x4fb8ff, 0x7fe6d0, 0x4fb8ff };
-static const uint32_t PAL_NIGHT[]   = { 0xf2f4ff, 0xc0caff, 0xe8ecff };
-static const uint32_t PAL_SPACE[]   = { 0xff7ad9, 0xa07aff, 0x5ad8ff, 0x7affc4, 0xff7ad9 };
+static const uint32_t PAL_SUNRISE[] = { 0xffcaa5, 0xff9973, 0xf06282, 0xd070e8, 0xffcaa5 };
+static const uint32_t PAL_WATER[]   = { 0x8ee7f8, 0x42b4e6, 0x58d8c2, 0x62c0f0, 0x8ee7f8 };
+static const uint32_t PAL_NIGHT[]   = { 0xeaf0fc, 0xb4c4e8, 0xd2dcf4, 0x98aed6, 0xeaf0fc };
+static const uint32_t PAL_SPACE[]   = { 0xf472d0, 0x9b6ef3, 0x48caf5, 0x63e6bf, 0xf472d0 };
 struct FaceDef { const uint32_t* pal; int n; bool textured; };
 static const FaceDef FACES[FACE_COUNT] = {
-  { PAL_SUNRISE, 4, false }, { PAL_WATER, 4, false }, { PAL_NIGHT, 3, false }, { PAL_SPACE, 5, true },
+  { PAL_SUNRISE, 5, false }, { PAL_WATER, 5, false }, { PAL_NIGHT, 5, false }, { PAL_SPACE, 5, true },
 };
 
 // Background cell for a face. Returns false for empty. `col` is pre-dimmed.
@@ -99,44 +209,44 @@ static bool bgCell(Face f, int x, int y, float t, char& ch, RGB& col) {
     case SUNRISE: {
       const int horizon = 13;
       if (y >= horizon) {
-        float w = sinf(x * 0.28f + t * 1.6f + (y - horizon) * 0.9f);
-        ch = w > 0.55f ? '~' : w > -0.2f ? '-' : '_';
+        float w = sinf(x * 0.24f + t * 1.3f + (y - horizon) * 0.85f);
+        ch = w > 0.58f ? '~' : (w > -0.15f ? '-' : '.');
         float d = (float)(y - horizon) / (ROWS - horizon);
-        col = dim(mix(rgb(0xc85a2a), rgb(0x5a2020), d), 0.45f);
+        col = dim(mix(rgb(0xe06830), rgb(0x602220), d), 0.55f);
         return true;
       }
-      float s = sinf(x * 0.12f - t * 0.6f + y * 1.3f);
-      if (s <= -0.4f) return false;
-      ch = s > 0.7f ? '=' : s > 0.1f ? '-' : '.';
+      float s = sinf(x * 0.11f - t * 0.5f + y * 1.25f);
+      if (s <= -0.3f) return false;
+      ch = s > 0.72f ? '=' : (s > 0.18f ? '-' : '.');
       float d = (float)y / horizon;
-      col = dim(mix(rgb(0x7a4aa0), rgb(0xe06a7a), d), 0.3f + 0.25f * d);
+      col = dim(mix(rgb(0x8c4eb5), rgb(0xf0687c), d), 0.38f + 0.28f * d);
       return true;
     }
     case WATER: {
-      float w = sinf(x * 0.22f + t * 1.8f + y * 0.7f) + 0.5f * sinf(x * 0.5f - t * 1.1f + y * 0.3f);
-      if (w <= -0.3f) return false;
-      ch = w > 0.45f ? '~' : '-';
+      float w = sinf(x * 0.20f + t * 1.5f + y * 0.65f) + 0.45f * sinf(x * 0.45f - t * 0.9f + y * 0.35f);
+      if (w <= -0.2f) return false;
+      ch = w > 0.55f ? '~' : (w > 0.1f ? '-' : '.');
       float d = (float)y / ROWS;
-      float a = 0.32f + 0.2f * (w / 1.5f) + (w > 1.05f ? 0.25f : 0.0f);
-      col = dim(mix(rgb(0x2a8ac0), rgb(0x0c2a4a), d), a);
+      float a = 0.38f + 0.32f * (w / 1.5f);
+      col = dim(mix(rgb(0x389ed0), rgb(0x103658), d), a);
       return true;
     }
     case NIGHT: {
       float n = hash2(x, y);
-      if (n < 0.94f) return false;
-      float tw = 0.5f + 0.5f * sinf(t * (1 + n * 3) + n * 60);
-      ch = tw > 0.85f ? '+' : tw > 0.5f ? '*' : '.';
-      col = dim(mix(rgb(0x3a4270), rgb(0xb8c4ff), tw), 0.35f + 0.6f * tw);
+      if (n < 0.945f) return false;
+      float tw = 0.5f + 0.5f * sinf(t * (1.2f + n * 2.5f) + n * 60.0f);
+      ch = tw > 0.88f ? '+' : (tw > 0.45f ? '*' : '.');
+      col = dim(mix(rgb(0x485285), rgb(0xcad6ff), tw), 0.42f + 0.55f * tw);
       return true;
     }
     case SPACE: {
       int layer = (x + y) % 3;
-      int sx = ((int)floorf(x + t * (0.8f + layer * 0.9f))) % COLS;
+      int sx = ((int)floorf(x + t * (0.7f + layer * 0.8f))) % COLS;
       float n = hash2(sx, y);
-      if (n < 0.9f) return false;
-      static const uint32_t cols[] = { 0x7a4aa8, 0x4a6ab8, 0xc060c0, 0x5ac8d8 };
-      ch = layer == 2 ? '*' : layer == 1 ? '+' : '.';
-      col = dim(rgb(cols[(int)(n * 40) % 4]), 0.4f + 0.3f * layer);
+      if (n < 0.91f) return false;
+      static const uint32_t cols[] = { 0x8a50c0, 0x5078d0, 0xd065d0, 0x60d4e8 };
+      ch = layer == 2 ? '*' : (layer == 1 ? '+' : '.');
+      col = dim(rgb(cols[(int)(n * 40) % 4]), 0.45f + 0.35f * layer);
       return true;
     }
     default: return false;
@@ -299,15 +409,48 @@ static void renderFrame() {
       }
     }
 
-    // digits: solid blocks, gradient sweeping with time
+    // digits: soft inner bevel, gradient sweeping with time
     for (int y = L.y0; y < L.y0 + L.height; y++) {
       int py = y * CH - off;
       if (py + CH <= 0 || py >= SPR_H) continue;
       for (int x = 0; x < COLS; x++) {
         if (!L.cell[y][x]) continue;
         float u = (float)(x - L.x0) / L.width + t * 0.08f + (y - L.y0) * 0.02f;
-        spr.fillRect(x * CW, py, CW, CH, c565(palette(F.pal, F.n, u)));
-        if (F.textured) drawDither(x * CW, py);
+        RGB col = palette(F.pal, F.n, u);
+
+        int px = x * CW;
+        spr.fillRect(px, py, CW, CH, c565(col));
+
+        // Sub-pixel edge styling for subtle bevel & illumination
+        bool topEdge = (y == L.y0) || !L.cell[y - 1][x];
+        bool botEdge = (y == L.y0 + L.height - 1) || !L.cell[y + 1][x];
+        bool leftEdge = (x == 0) || !L.cell[y][x - 1];
+        bool rightEdge = (x == COLS - 1) || !L.cell[y][x + 1];
+
+        if (topEdge) {
+          spr.drawFastHLine(px, py, CW, c565(dim(col, 1.25f)));
+        }
+        if (leftEdge) {
+          spr.drawFastVLine(px, py, CH, c565(dim(col, 1.15f)));
+        }
+        if (botEdge) {
+          spr.drawFastHLine(px, py + CH - 1, CW, c565(dim(col, 0.70f)));
+        }
+        if (rightEdge) {
+          spr.drawFastVLine(px + CW - 1, py, CH, c565(dim(col, 0.75f)));
+        }
+
+        if (F.textured) drawDither(px, py);
+      }
+    }
+
+    // hairline separator above seconds timeline
+    {
+      int sepY = (L.y0 + L.height) * CH + 3 - off;
+      if (sepY >= 0 && sepY < SPR_H) {
+        int xStart = (L.x0 - 1) * CW;
+        int xLen = (L.width + 2) * CW;
+        spr.drawFastHLine(xStart, sepY, xLen, c565(dim(rgb(0x8899aa), 0.15f)));
       }
     }
 
@@ -315,27 +458,44 @@ static void renderFrame() {
     {
       int y = L.y0 + L.height + 1, py = y * CH - off;
       if (py + CH > 0 && py < SPR_H) {
-        uint16_t dot = c565(dim(rgb(0xffffff), 0.15f));
-        for (int i = 0; i < L.width; i++) spr.fillRect((L.x0 + i) * CW + 2, py + 5, 2, 2, dot);
-        int sx = L.x0 + (sec * L.width) / 60;
-        spr.fillRect(sx * CW + 1, py + 4, 4, 4, c565(palette(F.pal, F.n, sec / 60.0f)));
+        uint16_t dotDim = c565(dim(rgb(0xffffff), 0.18f));
+        uint16_t markCol = c565(dim(palette(F.pal, F.n, 0.5f), 0.40f));
+        for (int i = 0; i < L.width; i++) {
+          int dotX = (L.x0 + i) * CW + 2;
+          if (i == 0 || i == L.width / 2 || i == L.width - 1) {
+            spr.fillRect(dotX, py + 4, 2, 4, markCol);
+          } else {
+            spr.fillRect(dotX, py + 5, 2, 2, dotDim);
+          }
+        }
+        int sx = L.x0 + (sec * (L.width - 1)) / 59;
+        RGB secCol = palette(F.pal, F.n, sec / 60.0f);
+        // glowing head with soft halo
+        spr.fillRect(sx * CW, py + 3, 6, 6, c565(dim(secCol, 0.40f)));
+        spr.fillRect(sx * CW + 1, py + 4, 4, 4, c565(secCol));
+        spr.drawPixel(sx * CW + 2, py + 5, TFT_WHITE);
+        spr.drawPixel(sx * CW + 3, py + 5, TFT_WHITE);
       }
     }
 
-    // bottom bar: date · AM/PM + face · weather
+    // bottom bar: hairline divider + elegant metadata
     {
+      int divY = (ROWS - 1) * CH - off;
+      if (divY >= 0 && divY < SPR_H) {
+        spr.drawFastHLine(CW, divY, SCREEN_W - 2 * CW, c565(dim(rgb(0x607080), 0.20f)));
+      }
       int y = ROWS - 1, py = y * CH - off;
       if (py + CH > 0 && py < SPR_H) {
         spr.setTextFont(1);
-        uint16_t muted = c565(rgb(0x9aa1ac));
-        char date[16] = "SYNCING";
-        if (timeOk) snprintf(date, sizeof(date), "%s  %s %d", DAYS[tmv.tm_wday], MONTHS[tmv.tm_mon], tmv.tm_mday);
+        uint16_t muted = c565(rgb(0x9aa8b8));
+        char date[24] = "SYNCING";
+        if (timeOk) snprintf(date, sizeof(date), "%s, %s %d", DAYS[tmv.tm_wday], MONTHS[tmv.tm_mon], tmv.tm_mday);
         spr.setTextColor(muted, TFT_BLACK);
         spr.setTextDatum(TL_DATUM);
         spr.drawString(date, 2 * CW, py + 2);
 
-        String mid = String(timeOk ? (pm ? "PM  " : "AM  ") : "") + (mode == FACE_COUNT ? "AUTO " : "") + FACE_NAMES[face];
-        spr.setTextColor(c565(dim(palette(F.pal, F.n, 0.5f), 0.85f)), TFT_BLACK);
+        String mid = String(timeOk ? (pm ? "PM  " : "AM  ") : "") + (mode == FACE_COUNT ? "AUTO \xB7 " : "\xB7 ") + FACE_NAMES[face];
+        spr.setTextColor(c565(dim(palette(F.pal, F.n, 0.5f), 0.90f)), TFT_BLACK);
         spr.setTextDatum(TC_DATUM);
         spr.drawString(mid, SCREEN_W / 2, py + 2);
 
@@ -353,13 +513,17 @@ static void renderFrame() {
 // ---------- boot screen ----------
 static void bootMsg(const char* line1, const char* line2 = "") {
   tft.fillScreen(TFT_BLACK);
+  tft.drawRoundRect(8, 8, SCREEN_W - 16, SCREEN_H - 16, 8, tft.color565(0x28, 0x34, 0x44));
   tft.setTextDatum(MC_DATUM);
   tft.setTextFont(2);
-  tft.setTextColor(tft.color565(0x9a, 0xf2, 0xff), TFT_BLACK);
-  tft.drawString("ascii clock", SCREEN_W / 2, SCREEN_H / 2 - 20);
-  tft.setTextColor(tft.color565(0x9a, 0xa1, 0xac), TFT_BLACK);
-  tft.drawString(line1, SCREEN_W / 2, SCREEN_H / 2 + 6);
-  tft.drawString(line2, SCREEN_W / 2, SCREEN_H / 2 + 24);
+  tft.setTextColor(tft.color565(0x8e, 0xe7, 0xf8), TFT_BLACK);
+  tft.drawString("A S C I I   C L O C K", SCREEN_W / 2, SCREEN_H / 2 - 24);
+  tft.drawFastHLine(SCREEN_W / 2 - 60, SCREEN_H / 2 - 8, 120, tft.color565(0x30, 0x42, 0x56));
+  tft.setTextFont(1);
+  tft.setTextColor(tft.color565(0xb4, 0xc4, 0xd8), TFT_BLACK);
+  tft.drawString(line1, SCREEN_W / 2, SCREEN_H / 2 + 10);
+  tft.setTextColor(tft.color565(0x72, 0x82, 0x96), TFT_BLACK);
+  tft.drawString(line2, SCREEN_W / 2, SCREEN_H / 2 + 28);
 }
 
 // ---------- setup / loop ----------

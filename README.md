@@ -17,10 +17,10 @@ Date and live weather sit along the bottom.
 
 | Face    | Digits                    | Background                    | Auto window |
 |---------|---------------------------|-------------------------------|-------------|
-| Sunrise | gold → coral → violet     | sky bands above, waves below  | 05–09       |
-| Water   | cyan → blue → seafoam     | layered scrolling waves       | 09–17       |
-| Night   | pale blue-white           | twinkling stars               | 17–22       |
-| Space   | pink → purple → cyan      | drifting multi-layer starfield| 22–05       |
+| Sunrise | soft peach → rose → mauve | sky bands above, waves below  | 05–09       |
+| Water   | ice blue → azure → seafoam| layered scrolling waves       | 09–17       |
+| Night   | silver-white → mist blue  | twinkling stars               | 17–22       |
+| Space   | orchid → violet → aqua    | drifting multi-layer starfield| 22–05       |
 
 Tap anywhere on the screen to cycle **Sunrise → Water → Night → Space → Auto**.
 Auto picks the face from the time of day.
