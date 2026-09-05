@@ -25,6 +25,16 @@ static const int XPT_IRQ = 36, XPT_MOSI = 32, XPT_MISO = 39, XPT_CLK = 25, XPT_C
 static const int LDR_PIN = 34;
 static const int BL_PIN = 21, BL_CH = 0;
 
+// Backlight PWM: Arduino-ESP32 core 3.x replaced the channel-based LEDC API
+// with a pin-based one, so route writes through one helper.
+static void setBacklight(int duty) {
+#if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
+  ledcWrite(BL_PIN, duty);
+#else
+  ledcWrite(BL_CH, duty);
+#endif
+}
+
 TFT_eSPI tft;
 TFT_eSprite spr(&tft);
 SPIClass touchSPI(VSPI);
@@ -33,22 +43,133 @@ XPT2046_Touchscreen touch(XPT_CS, XPT_IRQ);
 // ---------- grid ----------
 static const int COLS = 53, ROWS = 20, CW = 6, CH = 12;
 static const int SCREEN_W = 320, SCREEN_H = 240, SPR_H = 120;
+static const int FIELD_ROWS = ROWS - 2;  // rows of animated field above the footer
 
-// ---------- glyphs (5 wide, hollow, 9 tall) ----------
+// ---------- glyphs (5 wide, refined proportions, 9 tall) ----------
+// Carefully crafted contours with chamfered corners, open counters, and optical balance.
 static const char* G_DIGITS[10][9] = {
-  {" ### ","#   #","#   #","#   #","#   #","#   #","#   #","#   #"," ### "},
-  {"  #  "," ##  ","# #  ","  #  ","  #  ","  #  ","  #  ","  #  ","#####"},
-  {" ### ","#   #","    #","    #","   # ","  #  "," #   ","#    ","#####"},
-  {" ### ","#   #","    #","    #","  ## ","    #","    #","#   #"," ### "},
-  {"#   #","#   #","#   #","#   #","#####","    #","    #","    #","    #"},
-  {"#####","#    ","#    ","#    ","#### ","    #","    #","#   #"," ### "},
-  {" ### ","#   #","#    ","#    ","#### ","#   #","#   #","#   #"," ### "},
-  {"#####","    #","    #","   # ","   # ","  #  ","  #  ","  #  ","  #  "},
-  {" ### ","#   #","#   #","#   #"," ### ","#   #","#   #","#   #"," ### "},
-  {" ### ","#   #","#   #","#   #"," ####","    #","    #","#   #"," ### "},
+  {" ### ",
+   "#   #",
+   "#   #",
+   "#   #",
+   "#   #",
+   "#   #",
+   "#   #",
+   "#   #",
+   " ### "},
+
+  {"  #  ",
+   " ##  ",
+   "  #  ",
+   "  #  ",
+   "  #  ",
+   "  #  ",
+   "  #  ",
+   "  #  ",
+   "#####"},
+
+  {" ### ",
+   "#   #",
+   "    #",
+   "    #",
+   " ### ",
+   "#    ",
+   "#    ",
+   "#    ",
+   "#####"},
+
+  {"#### ",
+   "    #",
+   "    #",
+   "    #",
+   " ### ",
+   "    #",
+   "    #",
+   "    #",
+   "#### "},
+
+  {"#   #",
+   "#   #",
+   "#   #",
+   "#   #",
+   "#####",
+   "    #",
+   "    #",
+   "    #",
+   "    #"},
+
+  {"#####",
+   "#    ",
+   "#    ",
+   "#### ",
+   "    #",
+   "    #",
+   "    #",
+   "#   #",
+   " ### "},
+
+  {" ### ",
+   "#   #",
+   "#    ",
+   "#### ",
+   "#   #",
+   "#   #",
+   "#   #",
+   "#   #",
+   " ### "},
+
+  {"#####",
+   "    #",
+   "    #",
+   "   # ",
+   "   # ",
+   "  #  ",
+   "  #  ",
+   "  #  ",
+   "  #  "},
+
+  {" ### ",
+   "#   #",
+   "#   #",
+   "#   #",
+   " ### ",
+   "#   #",
+   "#   #",
+   "#   #",
+   " ### "},
+
+  {" ### ",
+   "#   #",
+   "#   #",
+   "#   #",
+   " ####",
+   "    #",
+   "    #",
+   "#   #",
+   " ### "},
 };
-static const char* G_COLON[9] = {"  ","  ","  "," #"," #","  "," #"," #","  "};
-static const char* G_DASH[9]  = {"     ","     ","     ","     ","#####","     ","     ","     ","     "};
+static const char* G_COLON[9] = {
+  "  ",
+  "  ",
+  " #",
+  " #",
+  "  ",
+  " #",
+  " #",
+  "  ",
+  "  "
+};
+static const char* G_DASH[9]  = {
+  "     ",
+  "     ",
+  "     ",
+  "     ",
+  "#####",
+  "     ",
+  "     ",
+  "     ",
+  "     "
+};
 
 static const char* const* glyphFor(char c, int& w) {
   if (c >= '0' && c <= '9') { w = 5; return G_DIGITS[c - '0']; }
@@ -84,59 +205,100 @@ static float hash2(int x, int y) {
 // ---------- faces ----------
 enum Face { SUNRISE, WATER, NIGHT, SPACE, FACE_COUNT };
 static const char* FACE_NAMES[FACE_COUNT] = { "SUNRISE", "WATER", "NIGHT", "SPACE" };
-static const uint32_t PAL_SUNRISE[] = { 0xffd27a, 0xff9a5c, 0xff6f91, 0xd98cff };
-static const uint32_t PAL_WATER[]   = { 0x9af2ff, 0x4fb8ff, 0x7fe6d0, 0x4fb8ff };
-static const uint32_t PAL_NIGHT[]   = { 0xf2f4ff, 0xc0caff, 0xe8ecff };
-static const uint32_t PAL_SPACE[]   = { 0xff7ad9, 0xa07aff, 0x5ad8ff, 0x7affc4, 0xff7ad9 };
-struct FaceDef { const uint32_t* pal; int n; bool textured; };
+static const uint32_t PAL_SUNRISE[] = { 0xffcaa5, 0xff9973, 0xf06282, 0xd070e8, 0xffcaa5 };
+static const uint32_t PAL_WATER[]   = { 0x8ee7f8, 0x42b4e6, 0x58d8c2, 0x62c0f0, 0x8ee7f8 };
+static const uint32_t PAL_NIGHT[]   = { 0xeaf0fc, 0xb4c4e8, 0xd2dcf4, 0x98aed6, 0xeaf0fc };
+static const uint32_t PAL_SPACE[]   = { 0xf472d0, 0x9b6ef3, 0x48caf5, 0x63e6bf, 0xf472d0 };
+struct FaceDef { const uint32_t* pal; int n; };
 static const FaceDef FACES[FACE_COUNT] = {
-  { PAL_SUNRISE, 4, false }, { PAL_WATER, 4, false }, { PAL_NIGHT, 3, false }, { PAL_SPACE, 5, true },
+  { PAL_SUNRISE, 5 }, { PAL_WATER, 5 }, { PAL_NIGHT, 5 }, { PAL_SPACE, 5 },
 };
 
-// Background cell for a face. Returns false for empty. `col` is pre-dimmed.
-static bool bgCell(Face f, int x, int y, float t, char& ch, RGB& col) {
+// ---------- ASCII field ----------
+// Every face is a dense, flowing field of characters covering the whole grid.
+// A cell's wave value v in [0,1] picks a glyph from the face's density ramp
+// (light -> heavy) and sets its brightness, classic ASCII-art style.
+static const char RAMP_SUNRISE[] = " .:-=+*#%@";
+static const char RAMP_WATER[]   = " .,:~-=+*#%@";
+static const char RAMP_NIGHT[]   = " .:-=";
+static const char RAMP_CODE[]    = "01<>[]{}/\\|=+*#@";
+static const char RAMP_DIGIT[]   = "#%@";
+#define RAMP(r, v) rampChar(r, sizeof(r) - 1, v)
+
+static float clamp01(float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); }
+static char rampChar(const char* ramp, int n, float v) { return ramp[(int)(clamp01(v) * (n - 1) + 0.5f)]; }
+
+// Field cell for a face. Returns false for empty. `col` is pre-dimmed.
+static bool fieldCell(Face f, int x, int y, float t, char& ch, RGB& col) {
+  const int rows = FIELD_ROWS;
   switch (f) {
     case SUNRISE: {
-      const int horizon = 13;
+      // plasma sky (violet -> rose) above a horizon of ember waves
+      const int horizon = 12;
+      float dx = (x - COLS / 2) * 0.47f, dy = (y - horizon) * 1.18f;
+      float p = sinf(x * 0.17f + t * 0.55f) + sinf(y * 0.42f - t * 0.35f)
+              + sinf(x * 0.09f + y * 0.21f + t * 0.45f)
+              + sinf(sqrtf(dx * dx + dy * dy) * 0.36f - t * 0.8f);
+      float v = clamp01((p + 4.0f) / 8.0f);
       if (y >= horizon) {
-        float w = sinf(x * 0.28f + t * 1.6f + (y - horizon) * 0.9f);
-        ch = w > 0.55f ? '~' : w > -0.2f ? '-' : '_';
-        float d = (float)(y - horizon) / (ROWS - horizon);
-        col = dim(mix(rgb(0xc85a2a), rgb(0x5a2020), d), 0.45f);
-        return true;
+        float w = 0.5f + 0.5f * sinf(x * 0.26f + t * 1.4f + (y - horizon) * 0.8f);
+        v = clamp01(0.55f * v + 0.45f * w);
+        float d = (float)(y - horizon) / (rows - horizon);
+        col = dim(mix(rgb(0xe07038), rgb(0x3a1616), d), 0.22f + 0.6f * v);
+      } else {
+        float d = (float)y / horizon;
+        col = dim(mix(rgb(0x5a3a8c), rgb(0xe8647c), d), 0.18f + 0.62f * v);
       }
-      float s = sinf(x * 0.12f - t * 0.6f + y * 1.3f);
-      if (s <= -0.4f) return false;
-      ch = s > 0.7f ? '=' : s > 0.1f ? '-' : '.';
-      float d = (float)y / horizon;
-      col = dim(mix(rgb(0x7a4aa0), rgb(0xe06a7a), d), 0.3f + 0.25f * d);
-      return true;
+      ch = RAMP(RAMP_SUNRISE, v);
+      return ch != ' ';
     }
     case WATER: {
-      float w = sinf(x * 0.22f + t * 1.8f + y * 0.7f) + 0.5f * sinf(x * 0.5f - t * 1.1f + y * 0.3f);
-      if (w <= -0.3f) return false;
-      ch = w > 0.45f ? '~' : '-';
-      float d = (float)y / ROWS;
-      float a = 0.32f + 0.2f * (w / 1.5f) + (w > 1.05f ? 0.25f : 0.0f);
-      col = dim(mix(rgb(0x2a8ac0), rgb(0x0c2a4a), d), a);
-      return true;
+      // interference of several wave trains; crests brighten toward ice-blue
+      float w = sinf(x * 0.21f + t * 1.3f + y * 0.55f)
+              + 0.6f * sinf(x * 0.45f - t * 0.85f + y * 0.3f)
+              + 0.4f * sinf((x + y) * 0.14f + t * 0.5f)
+              + 0.3f * sinf(y * 0.9f - t * 0.7f);
+      float v = clamp01((w + 2.3f) / 4.6f);
+      float depth = (float)y / rows;
+      col = dim(mix(rgb(0x0a2a48), rgb(0x52d4f4), v * v), (0.3f + 0.7f * v) * (1.0f - 0.3f * depth));
+      ch = RAMP(RAMP_WATER, v);
+      return ch != ' ';
     }
     case NIGHT: {
+      // slow nebula haze with twinkling stars on top
       float n = hash2(x, y);
-      if (n < 0.94f) return false;
-      float tw = 0.5f + 0.5f * sinf(t * (1 + n * 3) + n * 60);
-      ch = tw > 0.85f ? '+' : tw > 0.5f ? '*' : '.';
-      col = dim(mix(rgb(0x3a4270), rgb(0xb8c4ff), tw), 0.35f + 0.6f * tw);
-      return true;
+      if (n > 0.955f) {
+        float tw = 0.5f + 0.5f * sinf(t * (1.2f + n * 2.5f) + n * 60.0f);
+        ch = tw > 0.85f ? '+' : (tw > 0.45f ? '*' : '.');
+        col = dim(mix(rgb(0x485285), rgb(0xd8e2ff), tw), 0.45f + 0.55f * tw);
+        return true;
+      }
+      float p = sinf(x * 0.12f + t * 0.25f) + sinf(y * 0.3f - t * 0.2f) + sinf(x * 0.07f + y * 0.15f + t * 0.3f);
+      float v = clamp01((p + 3.0f) / 6.0f) * 0.6f;
+      col = dim(mix(rgb(0x18204a), rgb(0x6c7cc0), v), 0.25f + 0.6f * v);
+      ch = RAMP(RAMP_NIGHT, v);
+      return ch != ' ';
     }
     case SPACE: {
-      int layer = (x + y) % 3;
-      int sx = ((int)floorf(x + t * (0.8f + layer * 0.9f))) % COLS;
-      float n = hash2(sx, y);
-      if (n < 0.9f) return false;
-      static const uint32_t cols[] = { 0x7a4aa8, 0x4a6ab8, 0xc060c0, 0x5ac8d8 };
-      ch = layer == 2 ? '*' : layer == 1 ? '+' : '.';
-      col = dim(rgb(cols[(int)(n * 40) % 4]), 0.4f + 0.3f * layer);
+      // cascading code rain: per-column streams of glyphs, brightness rolling in waves
+      float speed = 0.5f + hash2(x, 7) * 1.3f;
+      float len = 6.0f + hash2(x, 11) * 10.0f;
+      float span = rows + len + 4.0f;
+      float head = fmodf(t * speed * 3.0f + hash2(x, 13) * span, span) - len - 2.0f;
+      float dist = head - y;
+      float wave = 0.5f + 0.5f * sinf(x * 0.18f - t * 0.9f);
+      if (dist < 0.0f || dist >= len) {
+        if (hash2(x, y) < 0.93f) return false;
+        ch = '.';
+        col = dim(rgb(0x5060a0), 0.3f + 0.3f * wave);
+        return true;
+      }
+      float b = 1.0f - dist / len;
+      ch = RAMP_CODE[(int)(hash2(x, y + (int)(t * 4.0f)) * 16.0f) % 16];
+      static const uint32_t cols[] = { 0x9b6ef3, 0x48caf5, 0xf472d0, 0x63e6bf };
+      RGB base = rgb(cols[(int)(hash2(x, 3) * 4.0f) % 4]);
+      if (dist < 1.0f) { ch = '@'; base = mix(base, rgb(0xffffff), 0.6f); }
+      col = dim(base, (0.25f + 0.75f * b) * (0.55f + 0.45f * wave));
       return true;
     }
     default: return false;
@@ -147,9 +309,17 @@ static bool bgCell(Face f, int x, int y, float t, char& ch, RGB& col) {
 struct Layout {
   int x0, width, y0, height;
   bool cell[ROWS][COLS];
-  bool inBand(int x, int y) const {
-    return y >= y0 - 1 && y <= y0 + height + 1 && x >= x0 - 2 && x < x0 + width + 2;
-  }
+  // The time sits on a framed "plate": the row above the digits and the
+  // seconds-track row below it are its top/bottom rules. The digit block is
+  // 50 of 53 columns wide, so the frame lives at pixel level and the whole
+  // group is nudged by `shift` px to sit dead-centre on the panel.
+  int plateTop() const { return y0 - 1; }
+  int plateBot() const { return y0 + height + 1; }
+  int shift() const { return (SCREEN_W - width * CW) / 2 - x0 * CW; }
+  int frameL() const { return x0 * CW + shift() - 4; }
+  int frameR() const { return (x0 + width) * CW + shift() + 3; }
+  int frameT() const { return plateTop() * CH + CH / 2; }
+  int frameB() const { return plateBot() * CH + CH / 2; }
 };
 
 static void buildLayout(const char* text, Layout& L) {
@@ -256,12 +426,6 @@ static void fetchWeather() {
 }
 
 // ---------- render ----------
-static void drawDither(int px, int py) {
-  for (int y = 0; y < CH; y += 2)
-    for (int x = (y / 2) % 2; x < CW; x += 2)
-      spr.drawPixel(px + x, py + y, TFT_BLACK);
-}
-
 static void renderFrame() {
   tm tmv;
   timeOk = wifiOk && getLocalTime(&tmv, 0);
@@ -288,58 +452,97 @@ static void renderFrame() {
     int off = pass * SPR_H;
     spr.fillSprite(TFT_BLACK);
 
-    // background chars (rows above the bottom bar; skip the band behind digits)
-    for (int y = 0; y < ROWS - 2; y++) {
+    // ASCII field: every cell above the footer is a flowing character, except
+    // on the plate, where the field drops to a faint ghost so the digits (heavy
+    // glyphs over a tinted block, gradient sweeping with time) read against
+    // near-black instead of against their own palette.
+    const int shift = L.shift(), pTop = L.plateTop(), pBot = L.plateBot();
+    for (int y = 0; y < FIELD_ROWS; y++) {
       int py = y * CH - off;
       if (py + CH <= 0 || py >= SPR_H) continue;
+      bool onPlate = (y >= pTop && y <= pBot);
       for (int x = 0; x < COLS; x++) {
-        if (L.inBand(x, y)) continue;
+        if (L.cell[y][x]) {
+          int px = x * CW + shift;
+          float u = (float)(x - L.x0) / L.width + t * 0.08f + (y - L.y0) * 0.02f;
+          RGB col = palette(F.pal, F.n, u);
+          float v = 0.5f + 0.5f * sinf(x * 0.45f + y * 0.6f + t * 2.0f);
+          uint16_t block = c565(dim(col, 0.30f));
+          spr.fillRect(px, py, CW, CH, block);
+          spr.drawChar(px, py + 2, RAMP(RAMP_DIGIT, v), c565(dim(col, 0.85f + 0.15f * v)), block, 1);
+          continue;
+        }
         char ch; RGB col;
-        if (bgCell(face, x, y, t, ch, col)) spr.drawChar(x * CW, py + 2, ch, c565(col), TFT_BLACK, 1);
+        if (onPlate) {
+          if (y == pTop || y == pBot) continue;                  // rule rows stay clear
+          if (x < L.x0 || x >= L.x0 + L.width) continue;         // margins beside the frame
+          if (!fieldCell(face, x, y, t, ch, col)) continue;
+          spr.drawChar(x * CW + shift, py + 2, ch, c565(dim(col, 0.14f)), TFT_BLACK, 1);
+          continue;
+        }
+        if (!fieldCell(face, x, y, t, ch, col)) continue;
+        spr.drawChar(x * CW, py + 2, ch, c565(col), TFT_BLACK, 1);
       }
     }
 
-    // digits: solid blocks, gradient sweeping with time
-    for (int y = L.y0; y < L.y0 + L.height; y++) {
-      int py = y * CH - off;
-      if (py + CH <= 0 || py >= SPR_H) continue;
-      for (int x = 0; x < COLS; x++) {
-        if (!L.cell[y][x]) continue;
-        float u = (float)(x - L.x0) / L.width + t * 0.08f + (y - L.y0) * 0.02f;
-        spr.fillRect(x * CW, py, CW, CH, c565(palette(F.pal, F.n, u)));
-        if (F.textured) drawDither(x * CW, py);
-      }
-    }
-
-    // seconds line under the digits
+    // plate frame: hairline rules in the face colour with brighter corner
+    // marks; the bottom rule doubles as the seconds track.
+    // (TFT_eSprite clips primitives, so we just offset by the pass.)
     {
-      int y = L.y0 + L.height + 1, py = y * CH - off;
-      if (py + CH > 0 && py < SPR_H) {
-        uint16_t dot = c565(dim(rgb(0xffffff), 0.15f));
-        for (int i = 0; i < L.width; i++) spr.fillRect((L.x0 + i) * CW + 2, py + 5, 2, 2, dot);
-        int sx = L.x0 + (sec * L.width) / 60;
-        spr.fillRect(sx * CW + 1, py + 4, 4, 4, c565(palette(F.pal, F.n, sec / 60.0f)));
+      const int fl = L.frameL(), fr = L.frameR(), ft = L.frameT() - off, fb = L.frameB() - off;
+      RGB accent = palette(F.pal, F.n, 0.5f);
+      uint16_t rule = c565(dim(accent, 0.42f)), mark = c565(dim(accent, 0.95f));
+      spr.drawFastHLine(fl, ft, fr - fl + 1, rule);
+      spr.drawFastHLine(fl, fb, fr - fl + 1, rule);
+      spr.drawFastVLine(fl, ft, fb - ft + 1, rule);
+      spr.drawFastVLine(fr, ft, fb - ft + 1, rule);
+      const int k = 5;  // corner mark length
+      spr.drawFastHLine(fl, ft, k, mark); spr.drawFastVLine(fl, ft, k, mark);
+      spr.drawFastHLine(fr - k + 1, ft, k, mark); spr.drawFastVLine(fr, ft, k, mark);
+      spr.drawFastHLine(fl, fb, k, mark); spr.drawFastVLine(fl, fb - k + 1, k, mark);
+      spr.drawFastHLine(fr - k + 1, fb, k, mark); spr.drawFastVLine(fr, fb - k + 1, k, mark);
+
+      // seconds track along the bottom rule: quarter ticks + glowing head
+      const int tx0 = L.x0 * CW + shift, tw = L.width * CW;
+      for (int q = 0; q <= 4; q++) {
+        int tx = tx0 + 1 + ((tw - 4) * q) / 4;
+        spr.fillRect(tx, fb - 2, 2, 5, c565(dim(accent, q % 2 ? 0.45f : 0.75f)));
       }
+      int sx = tx0 + 2 + ((tw - 10) * sec) / 59;
+      RGB secCol = palette(F.pal, F.n, sec / 60.0f);
+      spr.fillRect(sx - 1, fb - 3, 6, 7, c565(dim(secCol, 0.40f)));
+      spr.fillRect(sx, fb - 2, 4, 5, c565(secCol));
+      spr.drawPixel(sx + 1, fb, TFT_WHITE);
+      spr.drawPixel(sx + 2, fb, TFT_WHITE);
     }
 
-    // bottom bar: date · AM/PM + face · weather
+    // bottom bar: hairline divider + elegant metadata
     {
+      int divY = (ROWS - 1) * CH - off;
+      if (divY >= 0 && divY < SPR_H) {
+        spr.drawFastHLine(CW, divY, SCREEN_W - 2 * CW, c565(dim(rgb(0x607080), 0.20f)));
+      }
       int y = ROWS - 1, py = y * CH - off;
       if (py + CH > 0 && py < SPR_H) {
         spr.setTextFont(1);
-        uint16_t muted = c565(rgb(0x9aa1ac));
-        char date[16] = "SYNCING";
-        if (timeOk) snprintf(date, sizeof(date), "%s  %s %d", DAYS[tmv.tm_wday], MONTHS[tmv.tm_mon], tmv.tm_mday);
+        uint16_t muted = c565(rgb(0x9aa8b8));
+        // date + AM/PM left · face center · weather right (condition drops back
+        // to just the temperature if it would collide with the face label)
+        char left[24] = "SYNCING";
+        if (timeOk) snprintf(left, sizeof(left), "%s, %s %d  %s", DAYS[tmv.tm_wday], MONTHS[tmv.tm_mon], tmv.tm_mday, pm ? "PM" : "AM");
         spr.setTextColor(muted, TFT_BLACK);
         spr.setTextDatum(TL_DATUM);
-        spr.drawString(date, 2 * CW, py + 2);
+        spr.drawString(left, 2 * CW, py + 2);
 
-        String mid = String(timeOk ? (pm ? "PM  " : "AM  ") : "") + (mode == FACE_COUNT ? "AUTO " : "") + FACE_NAMES[face];
-        spr.setTextColor(c565(dim(palette(F.pal, F.n, 0.5f), 0.85f)), TFT_BLACK);
-        spr.setTextDatum(TC_DATUM);
-        spr.drawString(mid, SCREEN_W / 2, py + 2);
+        String mid = String(mode == FACE_COUNT ? "AUTO " : "") + FACE_NAMES[face];
+        int midW = mid.length() * CW, midX = (SCREEN_W - midW) / 2;
+        spr.setTextColor(c565(dim(palette(F.pal, F.n, 0.5f), 0.90f)), TFT_BLACK);
+        spr.setTextDatum(TL_DATUM);
+        spr.drawString(mid, midX, py + 2);
 
         String wx = wifiOk ? (weatherStr.length() ? weatherStr : "WEATHER...") : "OFFLINE";
+        int wxMax = (SCREEN_W - 2 * CW) - (midX + midW + 2 * CW);
+        if ((int)wx.length() * CW > wxMax) { int cut = wx.indexOf("  "); if (cut > 0) wx = wx.substring(0, cut); }
         spr.setTextColor(muted, TFT_BLACK);
         spr.setTextDatum(TR_DATUM);
         spr.drawString(wx, SCREEN_W - 2 * CW, py + 2);
@@ -353,13 +556,17 @@ static void renderFrame() {
 // ---------- boot screen ----------
 static void bootMsg(const char* line1, const char* line2 = "") {
   tft.fillScreen(TFT_BLACK);
+  tft.drawRoundRect(8, 8, SCREEN_W - 16, SCREEN_H - 16, 8, tft.color565(0x28, 0x34, 0x44));
   tft.setTextDatum(MC_DATUM);
   tft.setTextFont(2);
-  tft.setTextColor(tft.color565(0x9a, 0xf2, 0xff), TFT_BLACK);
-  tft.drawString("ascii clock", SCREEN_W / 2, SCREEN_H / 2 - 20);
-  tft.setTextColor(tft.color565(0x9a, 0xa1, 0xac), TFT_BLACK);
-  tft.drawString(line1, SCREEN_W / 2, SCREEN_H / 2 + 6);
-  tft.drawString(line2, SCREEN_W / 2, SCREEN_H / 2 + 24);
+  tft.setTextColor(tft.color565(0x8e, 0xe7, 0xf8), TFT_BLACK);
+  tft.drawString("A S C I I   C L O C K", SCREEN_W / 2, SCREEN_H / 2 - 24);
+  tft.drawFastHLine(SCREEN_W / 2 - 60, SCREEN_H / 2 - 8, 120, tft.color565(0x30, 0x42, 0x56));
+  tft.setTextFont(1);
+  tft.setTextColor(tft.color565(0xb4, 0xc4, 0xd8), TFT_BLACK);
+  tft.drawString(line1, SCREEN_W / 2, SCREEN_H / 2 + 10);
+  tft.setTextColor(tft.color565(0x72, 0x82, 0x96), TFT_BLACK);
+  tft.drawString(line2, SCREEN_W / 2, SCREEN_H / 2 + 28);
 }
 
 // ---------- setup / loop ----------
@@ -372,9 +579,13 @@ void setup() {
   tft.invertDisplay(INVERT_DISPLAY);
 #endif
   tft.fillScreen(TFT_BLACK);
+#if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
+  ledcAttach(BL_PIN, 5000, 8);      // core 3.x: channel is implicit, keyed by pin
+#else
   ledcSetup(BL_CH, 5000, 8);
   ledcAttachPin(BL_PIN, BL_CH);
-  ledcWrite(BL_CH, 255);
+#endif
+  setBacklight(255);
   analogReadResolution(12);
 
   touchSPI.begin(XPT_CLK, XPT_MISO, XPT_MOSI, XPT_CS);
@@ -424,7 +635,7 @@ void loop() {
     int ldr = analogRead(LDR_PIN);                     // higher = darker on the CYD
     float target = map(constrain(ldr, 300, 3800), 3800, 300, 70, 255);
     blLevel += (target - blLevel) * 0.2f;
-    ledcWrite(BL_CH, (int)blLevel);
+    setBacklight((int)blLevel);
   }
 
   if (wifiOk && now - lastWeather > 15UL * 60UL * 1000UL) {

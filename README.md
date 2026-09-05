@@ -1,9 +1,10 @@
 # esp32 ascii clock
 
 An over-engineered clock for the ESP32-2432S028R / S029R ("Cheap Yellow Display").
-The time is drawn as giant block digits on a 53×20 character grid, with a color
-gradient that slowly sweeps across them and an animated ASCII scene behind them.
-Date and live weather sit along the bottom.
+The whole 53×20 character grid is a dense, flowing field of ASCII — plasma skies,
+interference waves, nebula haze, cascading code rain — and the time is carved out
+of it as giant digits built from heavy glyphs (`# % @`) with a color gradient that
+slowly sweeps across them. Date and live weather sit along the bottom.
 
 ```
  ###   ###       #   #  #   #
@@ -15,12 +16,16 @@ Date and live weather sit along the bottom.
 
 ## Faces
 
-| Face    | Digits                    | Background                    | Auto window |
-|---------|---------------------------|-------------------------------|-------------|
-| Sunrise | gold → coral → violet     | sky bands above, waves below  | 05–09       |
-| Water   | cyan → blue → seafoam     | layered scrolling waves       | 09–17       |
-| Night   | pale blue-white           | twinkling stars               | 17–22       |
-| Space   | pink → purple → cyan      | drifting multi-layer starfield| 22–05       |
+| Face    | Digits                    | Field                                        | Auto window |
+|---------|---------------------------|----------------------------------------------|-------------|
+| Sunrise | soft peach → rose → mauve | violet→rose plasma sky over ember waves      | 05–09       |
+| Water   | ice blue → azure → seafoam| interfering wave trains, crests glow ice-blue| 09–17       |
+| Night   | silver-white → mist blue  | slow nebula haze under twinkling stars       | 17–22       |
+| Space   | orchid → violet → aqua    | cascading code rain, brightness in waves     | 22–05       |
+
+Each cell's wave value picks a glyph from a density ramp (` .:-=+*#%@`) and its
+brightness, classic ASCII-art style. A one-cell shadow ring around the digits keeps
+the time legible inside the field.
 
 Tap anywhere on the screen to cycle **Sunrise → Water → Night → Space → Auto**.
 Auto picks the face from the time of day.
