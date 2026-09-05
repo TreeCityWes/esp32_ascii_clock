@@ -25,6 +25,16 @@ static const int XPT_IRQ = 36, XPT_MOSI = 32, XPT_MISO = 39, XPT_CLK = 25, XPT_C
 static const int LDR_PIN = 34;
 static const int BL_PIN = 21, BL_CH = 0;
 
+// Backlight PWM: Arduino-ESP32 core 3.x replaced the channel-based LEDC API
+// with a pin-based one, so route writes through one helper.
+static void setBacklight(int duty) {
+#if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
+  ledcWrite(BL_PIN, duty);
+#else
+  ledcWrite(BL_CH, duty);
+#endif
+}
+
 TFT_eSPI tft;
 TFT_eSprite spr(&tft);
 SPIClass touchSPI(VSPI);
@@ -553,9 +563,13 @@ void setup() {
   tft.invertDisplay(INVERT_DISPLAY);
 #endif
   tft.fillScreen(TFT_BLACK);
+#if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
+  ledcAttach(BL_PIN, 5000, 8);      // core 3.x: channel is implicit, keyed by pin
+#else
   ledcSetup(BL_CH, 5000, 8);
   ledcAttachPin(BL_PIN, BL_CH);
-  ledcWrite(BL_CH, 255);
+#endif
+  setBacklight(255);
   analogReadResolution(12);
 
   touchSPI.begin(XPT_CLK, XPT_MISO, XPT_MOSI, XPT_CS);
@@ -605,7 +619,7 @@ void loop() {
     int ldr = analogRead(LDR_PIN);                     // higher = darker on the CYD
     float target = map(constrain(ldr, 300, 3800), 3800, 300, 70, 255);
     blLevel += (target - blLevel) * 0.2f;
-    ledcWrite(BL_CH, (int)blLevel);
+    setBacklight((int)blLevel);
   }
 
   if (wifiOk && now - lastWeather > 15UL * 60UL * 1000UL) {
