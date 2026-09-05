@@ -198,55 +198,96 @@ static const uint32_t PAL_SUNRISE[] = { 0xffcaa5, 0xff9973, 0xf06282, 0xd070e8, 
 static const uint32_t PAL_WATER[]   = { 0x8ee7f8, 0x42b4e6, 0x58d8c2, 0x62c0f0, 0x8ee7f8 };
 static const uint32_t PAL_NIGHT[]   = { 0xeaf0fc, 0xb4c4e8, 0xd2dcf4, 0x98aed6, 0xeaf0fc };
 static const uint32_t PAL_SPACE[]   = { 0xf472d0, 0x9b6ef3, 0x48caf5, 0x63e6bf, 0xf472d0 };
-struct FaceDef { const uint32_t* pal; int n; bool textured; };
+struct FaceDef { const uint32_t* pal; int n; };
 static const FaceDef FACES[FACE_COUNT] = {
-  { PAL_SUNRISE, 5, false }, { PAL_WATER, 5, false }, { PAL_NIGHT, 5, false }, { PAL_SPACE, 5, true },
+  { PAL_SUNRISE, 5 }, { PAL_WATER, 5 }, { PAL_NIGHT, 5 }, { PAL_SPACE, 5 },
 };
 
-// Background cell for a face. Returns false for empty. `col` is pre-dimmed.
-static bool bgCell(Face f, int x, int y, float t, char& ch, RGB& col) {
+// ---------- ASCII field ----------
+// Every face is a dense, flowing field of characters covering the whole grid.
+// A cell's wave value v in [0,1] picks a glyph from the face's density ramp
+// (light -> heavy) and sets its brightness, classic ASCII-art style.
+static const char RAMP_SUNRISE[] = " .:-=+*#%@";
+static const char RAMP_WATER[]   = " .,:~-=+*#%@";
+static const char RAMP_NIGHT[]   = " .:-=";
+static const char RAMP_CODE[]    = "01<>[]{}/\\|=+*#@";
+static const char RAMP_DIGIT[]   = "#%@";
+#define RAMP(r, v) rampChar(r, sizeof(r) - 1, v)
+
+static float clamp01(float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); }
+static char rampChar(const char* ramp, int n, float v) { return ramp[(int)(clamp01(v) * (n - 1) + 0.5f)]; }
+
+// Field cell for a face. Returns false for empty. `col` is pre-dimmed.
+static bool fieldCell(Face f, int x, int y, float t, char& ch, RGB& col) {
+  const int rows = ROWS - 2;  // field rows above the footer
   switch (f) {
     case SUNRISE: {
-      const int horizon = 13;
+      // plasma sky (violet -> rose) above a horizon of ember waves
+      const int horizon = 12;
+      float dx = (x - COLS / 2) * 0.47f, dy = (y - horizon) * 1.18f;
+      float p = sinf(x * 0.17f + t * 0.55f) + sinf(y * 0.42f - t * 0.35f)
+              + sinf(x * 0.09f + y * 0.21f + t * 0.45f)
+              + sinf(sqrtf(dx * dx + dy * dy) * 0.36f - t * 0.8f);
+      float v = clamp01((p + 4.0f) / 8.0f);
       if (y >= horizon) {
-        float w = sinf(x * 0.24f + t * 1.3f + (y - horizon) * 0.85f);
-        ch = w > 0.58f ? '~' : (w > -0.15f ? '-' : '.');
-        float d = (float)(y - horizon) / (ROWS - horizon);
-        col = dim(mix(rgb(0xe06830), rgb(0x602220), d), 0.55f);
-        return true;
+        float w = 0.5f + 0.5f * sinf(x * 0.26f + t * 1.4f + (y - horizon) * 0.8f);
+        v = clamp01(0.55f * v + 0.45f * w);
+        float d = (float)(y - horizon) / (rows - horizon);
+        col = dim(mix(rgb(0xe07038), rgb(0x3a1616), d), 0.22f + 0.6f * v);
+      } else {
+        float d = (float)y / horizon;
+        col = dim(mix(rgb(0x5a3a8c), rgb(0xe8647c), d), 0.18f + 0.62f * v);
       }
-      float s = sinf(x * 0.11f - t * 0.5f + y * 1.25f);
-      if (s <= -0.3f) return false;
-      ch = s > 0.72f ? '=' : (s > 0.18f ? '-' : '.');
-      float d = (float)y / horizon;
-      col = dim(mix(rgb(0x8c4eb5), rgb(0xf0687c), d), 0.38f + 0.28f * d);
-      return true;
+      ch = RAMP(RAMP_SUNRISE, v);
+      return ch != ' ';
     }
     case WATER: {
-      float w = sinf(x * 0.20f + t * 1.5f + y * 0.65f) + 0.45f * sinf(x * 0.45f - t * 0.9f + y * 0.35f);
-      if (w <= -0.2f) return false;
-      ch = w > 0.55f ? '~' : (w > 0.1f ? '-' : '.');
-      float d = (float)y / ROWS;
-      float a = 0.38f + 0.32f * (w / 1.5f);
-      col = dim(mix(rgb(0x389ed0), rgb(0x103658), d), a);
-      return true;
+      // interference of several wave trains; crests brighten toward ice-blue
+      float w = sinf(x * 0.21f + t * 1.3f + y * 0.55f)
+              + 0.6f * sinf(x * 0.45f - t * 0.85f + y * 0.3f)
+              + 0.4f * sinf((x + y) * 0.14f + t * 0.5f)
+              + 0.3f * sinf(y * 0.9f - t * 0.7f);
+      float v = clamp01((w + 2.3f) / 4.6f);
+      float depth = (float)y / rows;
+      col = dim(mix(rgb(0x0a2a48), rgb(0x52d4f4), v * v), (0.3f + 0.7f * v) * (1.0f - 0.3f * depth));
+      ch = RAMP(RAMP_WATER, v);
+      return ch != ' ';
     }
     case NIGHT: {
+      // slow nebula haze with twinkling stars on top
       float n = hash2(x, y);
-      if (n < 0.945f) return false;
-      float tw = 0.5f + 0.5f * sinf(t * (1.2f + n * 2.5f) + n * 60.0f);
-      ch = tw > 0.88f ? '+' : (tw > 0.45f ? '*' : '.');
-      col = dim(mix(rgb(0x485285), rgb(0xcad6ff), tw), 0.42f + 0.55f * tw);
-      return true;
+      if (n > 0.955f) {
+        float tw = 0.5f + 0.5f * sinf(t * (1.2f + n * 2.5f) + n * 60.0f);
+        ch = tw > 0.85f ? '+' : (tw > 0.45f ? '*' : '.');
+        col = dim(mix(rgb(0x485285), rgb(0xd8e2ff), tw), 0.45f + 0.55f * tw);
+        return true;
+      }
+      float p = sinf(x * 0.12f + t * 0.25f) + sinf(y * 0.3f - t * 0.2f) + sinf(x * 0.07f + y * 0.15f + t * 0.3f);
+      float v = clamp01((p + 3.0f) / 6.0f) * 0.6f;
+      col = dim(mix(rgb(0x18204a), rgb(0x6c7cc0), v), 0.25f + 0.6f * v);
+      ch = RAMP(RAMP_NIGHT, v);
+      return ch != ' ';
     }
     case SPACE: {
-      int layer = (x + y) % 3;
-      int sx = ((int)floorf(x + t * (0.7f + layer * 0.8f))) % COLS;
-      float n = hash2(sx, y);
-      if (n < 0.91f) return false;
-      static const uint32_t cols[] = { 0x8a50c0, 0x5078d0, 0xd065d0, 0x60d4e8 };
-      ch = layer == 2 ? '*' : (layer == 1 ? '+' : '.');
-      col = dim(rgb(cols[(int)(n * 40) % 4]), 0.45f + 0.35f * layer);
+      // cascading code rain: per-column streams of glyphs, brightness rolling in waves
+      float speed = 0.5f + hash2(x, 7) * 1.3f;
+      float len = 6.0f + hash2(x, 11) * 10.0f;
+      float span = rows + len + 4.0f;
+      float head = fmodf(t * speed * 3.0f + hash2(x, 13) * span, span) - len - 2.0f;
+      float dist = head - y;
+      float wave = 0.5f + 0.5f * sinf(x * 0.18f - t * 0.9f);
+      if (dist < 0.0f || dist >= len) {
+        if (hash2(x, y) < 0.93f) return false;
+        ch = '.';
+        col = dim(rgb(0x5060a0), 0.3f + 0.3f * wave);
+        return true;
+      }
+      float b = 1.0f - dist / len;
+      ch = RAMP_CODE[(int)(hash2(x, y + (int)(t * 4.0f)) * 16.0f) % 16];
+      static const uint32_t cols[] = { 0x9b6ef3, 0x48caf5, 0xf472d0, 0x63e6bf };
+      RGB base = rgb(cols[(int)(hash2(x, 3) * 4.0f) % 4]);
+      if (dist < 1.0f) { ch = '@'; base = mix(base, rgb(0xffffff), 0.6f); }
+      col = dim(base, (0.25f + 0.75f * b) * (0.55f + 0.45f * wave));
       return true;
     }
     default: return false;
@@ -257,8 +298,14 @@ static bool bgCell(Face f, int x, int y, float t, char& ch, RGB& col) {
 struct Layout {
   int x0, width, y0, height;
   bool cell[ROWS][COLS];
-  bool inBand(int x, int y) const {
-    return y >= y0 - 1 && y <= y0 + height + 1 && x >= x0 - 2 && x < x0 + width + 2;
+  // one-cell shadow ring around the digits keeps them legible in the field
+  bool nearDigit(int x, int y) const {
+    for (int dy = -1; dy <= 1; dy++)
+      for (int dx = -1; dx <= 1; dx++) {
+        int xx = x + dx, yy = y + dy;
+        if (xx >= 0 && xx < COLS && yy >= 0 && yy < ROWS && cell[yy][xx]) return true;
+      }
+    return false;
   }
 };
 
@@ -366,12 +413,6 @@ static void fetchWeather() {
 }
 
 // ---------- render ----------
-static void drawDither(int px, int py) {
-  for (int y = 0; y < CH; y += 2)
-    for (int x = (y / 2) % 2; x < CW; x += 2)
-      spr.drawPixel(px + x, py + y, TFT_BLACK);
-}
-
 static void renderFrame() {
   tm tmv;
   timeOk = wifiOk && getLocalTime(&tmv, 0);
@@ -398,59 +439,30 @@ static void renderFrame() {
     int off = pass * SPR_H;
     spr.fillSprite(TFT_BLACK);
 
-    // background chars (rows above the bottom bar; skip the band behind digits)
+    // ASCII field: every cell above the footer is a flowing character.
+    // Digit cells are carved out of the field in the face palette (heavy glyphs
+    // over a tinted block, gradient sweeping with time); the ring of cells
+    // around them is shadowed so the numerals stay legible.
     for (int y = 0; y < ROWS - 2; y++) {
       int py = y * CH - off;
       if (py + CH <= 0 || py >= SPR_H) continue;
+      bool meterRow = (y == L.y0 + L.height + 1);
       for (int x = 0; x < COLS; x++) {
-        if (L.inBand(x, y)) continue;
-        char ch; RGB col;
-        if (bgCell(face, x, y, t, ch, col)) spr.drawChar(x * CW, py + 2, ch, c565(col), TFT_BLACK, 1);
-      }
-    }
-
-    // digits: soft inner bevel, gradient sweeping with time
-    for (int y = L.y0; y < L.y0 + L.height; y++) {
-      int py = y * CH - off;
-      if (py + CH <= 0 || py >= SPR_H) continue;
-      for (int x = 0; x < COLS; x++) {
-        if (!L.cell[y][x]) continue;
-        float u = (float)(x - L.x0) / L.width + t * 0.08f + (y - L.y0) * 0.02f;
-        RGB col = palette(F.pal, F.n, u);
-
         int px = x * CW;
-        spr.fillRect(px, py, CW, CH, c565(col));
-
-        // Sub-pixel edge styling for subtle bevel & illumination
-        bool topEdge = (y == L.y0) || !L.cell[y - 1][x];
-        bool botEdge = (y == L.y0 + L.height - 1) || !L.cell[y + 1][x];
-        bool leftEdge = (x == 0) || !L.cell[y][x - 1];
-        bool rightEdge = (x == COLS - 1) || !L.cell[y][x + 1];
-
-        if (topEdge) {
-          spr.drawFastHLine(px, py, CW, c565(dim(col, 1.25f)));
+        if (L.cell[y][x]) {
+          float u = (float)(x - L.x0) / L.width + t * 0.08f + (y - L.y0) * 0.02f;
+          RGB col = palette(F.pal, F.n, u);
+          float v = 0.5f + 0.5f * sinf(x * 0.45f + y * 0.6f + t * 2.0f);
+          uint16_t block = c565(dim(col, 0.24f));
+          spr.fillRect(px, py, CW, CH, block);
+          spr.drawChar(px, py + 2, RAMP(RAMP_DIGIT, v), c565(dim(col, 0.8f + 0.2f * v)), block, 1);
+          continue;
         }
-        if (leftEdge) {
-          spr.drawFastVLine(px, py, CH, c565(dim(col, 1.15f)));
-        }
-        if (botEdge) {
-          spr.drawFastHLine(px, py + CH - 1, CW, c565(dim(col, 0.70f)));
-        }
-        if (rightEdge) {
-          spr.drawFastVLine(px + CW - 1, py, CH, c565(dim(col, 0.75f)));
-        }
-
-        if (F.textured) drawDither(px, py);
-      }
-    }
-
-    // hairline separator above seconds timeline
-    {
-      int sepY = (L.y0 + L.height) * CH + 3 - off;
-      if (sepY >= 0 && sepY < SPR_H) {
-        int xStart = (L.x0 - 1) * CW;
-        int xLen = (L.width + 2) * CW;
-        spr.drawFastHLine(xStart, sepY, xLen, c565(dim(rgb(0x8899aa), 0.15f)));
+        if (meterRow && x >= L.x0 - 1 && x <= L.x0 + L.width) continue;
+        char ch; RGB col;
+        if (!fieldCell(face, x, y, t, ch, col)) continue;
+        if (L.nearDigit(x, y)) col = dim(col, 0.4f);
+        spr.drawChar(px, py + 2, ch, c565(col), TFT_BLACK, 1);
       }
     }
 
@@ -488,18 +500,23 @@ static void renderFrame() {
       if (py + CH > 0 && py < SPR_H) {
         spr.setTextFont(1);
         uint16_t muted = c565(rgb(0x9aa8b8));
-        char date[24] = "SYNCING";
-        if (timeOk) snprintf(date, sizeof(date), "%s, %s %d", DAYS[tmv.tm_wday], MONTHS[tmv.tm_mon], tmv.tm_mday);
+        // date + AM/PM left · face center · weather right (condition drops back
+        // to just the temperature if it would collide with the face label)
+        char left[24] = "SYNCING";
+        if (timeOk) snprintf(left, sizeof(left), "%s, %s %d  %s", DAYS[tmv.tm_wday], MONTHS[tmv.tm_mon], tmv.tm_mday, pm ? "PM" : "AM");
         spr.setTextColor(muted, TFT_BLACK);
         spr.setTextDatum(TL_DATUM);
-        spr.drawString(date, 2 * CW, py + 2);
+        spr.drawString(left, 2 * CW, py + 2);
 
-        String mid = String(timeOk ? (pm ? "PM  " : "AM  ") : "") + (mode == FACE_COUNT ? "AUTO \xB7 " : "\xB7 ") + FACE_NAMES[face];
+        String mid = String(mode == FACE_COUNT ? "AUTO " : "") + FACE_NAMES[face];
+        int midW = mid.length() * CW, midX = (SCREEN_W - midW) / 2;
         spr.setTextColor(c565(dim(palette(F.pal, F.n, 0.5f), 0.90f)), TFT_BLACK);
-        spr.setTextDatum(TC_DATUM);
-        spr.drawString(mid, SCREEN_W / 2, py + 2);
+        spr.setTextDatum(TL_DATUM);
+        spr.drawString(mid, midX, py + 2);
 
         String wx = wifiOk ? (weatherStr.length() ? weatherStr : "WEATHER...") : "OFFLINE";
+        int wxMax = (SCREEN_W - 2 * CW) - (midX + midW + 2 * CW);
+        if ((int)wx.length() * CW > wxMax) { int cut = wx.indexOf("  "); if (cut > 0) wx = wx.substring(0, cut); }
         spr.setTextColor(muted, TFT_BLACK);
         spr.setTextDatum(TR_DATUM);
         spr.drawString(wx, SCREEN_W - 2 * CW, py + 2);
