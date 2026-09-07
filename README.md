@@ -1,94 +1,106 @@
-# esp32 ascii clock
+# ESP32 digital clock
 
-An over-engineered clock for the ESP32-2432S028R / S029R ("Cheap Yellow Display").
-The time is drawn as giant block digits on a 53×20 character grid, with a color
-gradient that slowly sweeps across them and an animated ASCII scene behind them.
-Date and live weather sit along the bottom.
+A dedicated clock for ESP32-2432S028R / S029R (Cheap Yellow Display).
+Large smooth warm-white numerals on black, with a readable date and AM/PM line.
+The display is touch-free, with automatic backlight dimming and Wi-Fi time sync.
 
-```
- ###   ###       #   #  #   #
-#   # #   #      #   #  #   #      ~~~-----~~~~
-#   # #   #   #  #####  #####   ~~~~---   -----~~~
-#   # #   #      #   #  #   #  ----~~~~~~~
- ###   ###    #      #      #
-```
+The time uses Barlow Condensed Medium with antialiased curves in 154-pixel
+glyph boxes. Two-digit hours fit with 8-pixel side margins; single-digit hours
+are centered without a leading zero. A small, steady round colon and mixed-case
+date keep the face quiet. Supporting text uses the same smooth font in 36-pixel
+boxes. The screen redraws only when its content changes.
 
-## Faces
+The bundled [Barlow font](https://github.com/google/fonts/tree/main/ofl/barlowcondensed)
+is licensed under the SIL Open Font License (see [font license](assets/fonts/OFL.txt)).
+Generated masks are stored in firmware flash, so no font/filesystem upload or
+internet font request is required. The browser preview uses the same masks and
+display color quantization.
 
-| Face    | Digits                    | Background                    | Auto window |
-|---------|---------------------------|-------------------------------|-------------|
-| Sunrise | gold → coral → violet     | sky bands above, waves below  | 05–09       |
-| Water   | cyan → blue → seafoam     | layered scrolling waves       | 09–17       |
-| Night   | pale blue-white           | twinkling stars               | 17–22       |
-| Space   | pink → purple → cyan      | drifting multi-layer starfield| 22–05       |
+Designed for a 2.8-inch, 320 x 240 landscape display. This is a time display,
+without an alarm buzzer.
 
-Tap anywhere on the screen to cycle **Sunrise → Water → Night → Space → Auto**.
-Auto picks the face from the time of day.
+## Wi-Fi and timekeeping
 
-## Features
+On first setup, join `ascii-clock`, open `192.168.4.1`, and select your network.
+Credentials are saved. The setup portal stays open for three minutes; reboot
+to reopen it when the clock cannot connect.
 
-- **No credentials in code.** First boot opens a Wi‑Fi access point named
-  `ascii-clock`. Join it, open `192.168.4.1`, choose your network. It's remembered.
-- **NTP time** with DST rules (Eastern by default, see `TZ_POSIX` in `platformio.ini`).
-- **Weather** from [Open‑Meteo](https://open-meteo.com), location auto-detected
-  from your public IP. Refreshes every 15 minutes. No API key.
-- **Auto-dimming backlight** from the onboard light sensor.
-- Seconds shown as a dot walking under the digits.
+Time sync runs every 15 minutes with three NTP servers. Wi-Fi reconnects
+automatically, with explicit retries every 30 seconds after the portal closes.
+Reconnection requests a fresh time sync. The clock keeps ticking while offline.
+Eastern time with DST is configured through `TZ_POSIX` in `platformio.ini`.
 
-## Hardware
+The date is replaced by `Sync due` if the last sync is over an hour old,
+`Syncing` before time is available, or `Offline` without Wi-Fi.
+Initial Wi-Fi setup has its own readable instruction screen.
+After power loss, internet time is needed before showing a valid time.
+There is no battery-backed RTC, and extended offline operation can drift.
 
-Any Sunton ESP32-2432S028R / S029R board (2.8" 240×320, resistive touch). Both the
-original micro-USB (ILI9341) and the newer 2-USB (ST7789) revisions are covered by
-the same pin map; see [Display variants](#display-variants).
+Periodic sync uses the ESP32
+[SNTP API](https://docs.espressif.com/projects/esp-idf/en/v4.4.8/esp32/api-reference/system/system_time.html).
 
-## Build & flash
+## Build and flash
 
-Requires [PlatformIO](https://platformio.org/) (`pip install platformio`).
+Install [PlatformIO](https://platformio.org/), then run from the repository root:
 
 ```powershell
-pio run              # build
-pio run -t upload    # flash (port is set to COM3 in platformio.ini)
-pio device monitor   # serial log at 115200
+pio run
+pio run -t upload
+pio device monitor
 ```
 
-The CH340 on these boards often won't enter download mode on its own. When the
-upload shows `Connecting....`, **hold BOOT**, tap **RESET**, release BOOT. Don't
-touch the buttons again until the write finishes.
+PlatformIO automatically detects the serial port. To select one explicitly,
+use `pio run -t upload --upload-port COM3` and `pio device monitor --port COM3`
+(replace `COM3` with your device's port).
+
+If upload sticks at `Connecting...`, hold BOOT, tap RESET, then release BOOT.
+Normal builds use the committed font assets; Python font-generation tools are
+only needed when changing the typeface.
 
 ## Display variants
 
-If colors look wrong on first boot:
+- Inverted colors: flip `-DINVERT_DISPLAY=1` to `0`, or vice versa.
+- Red/blue swapped: change `-DTFT_RGB_ORDER=TFT_BGR` to `TFT_RGB`.
+- ST7789 panel: replace `-DILI9341_2_DRIVER=1` with `-DST7789_DRIVER=1`.
+- Reversed brightness response: swap `3800, 300` in the backlight `map()` call.
 
-- **Inverted (white background, dark digits):** flip `-DINVERT_DISPLAY=1` to `0`
-  in `platformio.ini`, or vice versa.
-- **Red and blue swapped:** change `-DTFT_RGB_ORDER=TFT_BGR` to `TFT_RGB`.
-- **Garbage / offset image:** your panel is the ST7789 revision. Replace
-  `-DILI9341_2_DRIVER=1` with `-DST7789_DRIVER=1`.
+## Preview and checks
 
-If the screen gets *dimmer* in a bright room, the light-sensor polarity differs on
-your batch — swap the `3800, 300` pair in the `map()` call in `loop()`.
+Open `index.html` directly. Use `?time=10:58`, `?time=11:59`, or `?time=12:00`
+to inspect specific hours. Preview time uses your browser's timezone;
+network status is simulated.
 
-## Browser mock
+With Node.js installed, run `node tests/layout.cjs`. The checks cover all 1,440
+minute combinations, date spacing, noon/midnight formatting, and exact parity
+between firmware and preview glyph masks.
 
-`index.html` is a standalone mock of the display (canvas, no build step). Open it
-directly or serve the folder; `?face=water` etc. picks a face. Useful for tuning
-palettes and wave math before flashing.
+Hardware checks: hours 10 through 12, touch having no effect, time advancing
+without Wi-Fi, synchronization after reconnection, and initial setup without
+saved credentials. Assess viewing distance and angle on the physical display.
 
-## Layout
+## Font assets
 
+The source font and its license are bundled in `assets/fonts/`. To regenerate
+the firmware header, browser glyph data, and a visual contact sheet:
+
+```powershell
+python -m pip install -r tools/requirements.txt
+python tools/generate_font.py
+node tests/layout.cjs
+pio run
 ```
-platformio.ini   board, libraries, TFT_eSPI pin map, app config
-src/main.cpp     firmware: grid renderer, faces, Wi-Fi/NTP/weather, touch
-index.html       browser mock of the same renderer
-```
 
-## Pin map (TFT_eSPI, set in platformio.ini)
+The contact sheet is written to `artifacts/type-preview.png`. Build outputs,
+contact sheets, and Python caches are excluded from version control.
 
-| Signal      | GPIO | Signal       | GPIO |
-|-------------|------|--------------|------|
-| TFT MOSI    | 13   | Touch MOSI   | 32   |
-| TFT MISO    | 12   | Touch MISO   | 39   |
-| TFT SCLK    | 14   | Touch CLK    | 25   |
-| TFT CS      | 15   | Touch CS     | 33   |
-| TFT DC      | 2    | Touch IRQ    | 36   |
-| Backlight   | 21   | Light sensor | 34   |
+## Files and pins
+
+- `src/main.cpp`: firmware and renderer.
+- `platformio.ini`: board, display configuration, timezone, dependencies.
+- `index.html`: standalone preview.
+- `src/clock_font.h` and `assets/font-data.js`: generated glyph masks.
+- `tools/generate_font.py`: font asset generation.
+- `tests/layout.cjs`: layout and asset checks.
+
+TFT MOSI 13, MISO 12, SCLK 14, CS 15, DC 2; backlight 21; light sensor 34.
+Unused touch CS 33 is held high.
